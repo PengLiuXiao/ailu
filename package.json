@@ -1,0 +1,56 @@
+{
+  "name": "ailu",
+  "version": "0.2.0",
+  "description": "Local Agent chat and content publishing studio for Obsidian.",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs --watch",
+    "build": "node scripts/build-release.mjs",
+    "check": "npm test && npm run test:public-policy && npm run lint && npm run build && npm run verify:release",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:public-policy": "node scripts/test-public-source-policy.mjs",
+    "audit:dependencies": "npm audit --audit-level=high",
+    "deploy:plan": "node scripts/deploy-ailu.mjs --mode plan",
+    "deploy:apply": "node scripts/deploy-ailu.mjs --mode apply",
+    "deploy:rollback-plan": "node scripts/deploy-ailu.mjs --mode rollback-plan",
+    "deploy:rollback-apply": "node scripts/deploy-ailu.mjs --mode rollback-apply",
+    "deploy:recover-plan": "node scripts/deploy-ailu.mjs --mode recover-plan",
+    "deploy:recover-apply": "node scripts/deploy-ailu.mjs --mode recover-apply",
+    "preview:extracted-themes": "node scripts/build-extracted-theme-previews.mjs",
+    "verify:release": "node scripts/verify-release.mjs"
+  },
+  "keywords": [
+    "obsidian",
+    "obsidian-plugin",
+    "ai-workbench",
+    "wechat-official-account",
+    "claude-code",
+    "codex"
+  ],
+  "author": "Yichen",
+  "license": "AGPL-3.0-or-later",
+  "devDependencies": {
+    "@codemirror/state": "^6.5.0",
+    "@codemirror/view": "^6.38.6",
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.10.1",
+    "@types/qrcode": "^1.5.6",
+    "esbuild": "^0.28.1",
+    "eslint": "^9.39.1",
+    "eslint-plugin-obsidianmd": "^0.4.1",
+    "obsidian": "^1.8.7",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.48.0",
+    "vitest": "^4.0.14"
+  },
+  "dependencies": {
+    "entities": "^4.5.0",
+    "qrcode": "^1.5.4"
+  },
+  "overrides": {
+    "js-yaml": "4.3.1",
+    "nanoid": "3.3.18"
+  }
+}

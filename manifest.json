@@ -1,0 +1,9 @@
+{
+  "id": "ailu",
+  "name": "Ailu",
+  "version": "0.2.0",
+  "minAppVersion": "1.11.4",
+  "description": "Ailu provides local Agent chat and confirmed draft workflows through a verified macOS/POSIX writer gateway.",
+  "author": "Yichen",
+  "isDesktopOnly": true
+}

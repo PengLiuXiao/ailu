@@ -1,0 +1,161 @@
+{
+  "normalization_vectors": [
+    {
+      "name": "synthetic-merged-prefix",
+      "source": "这是一段专门用于测试的**合成锚点文本**，其中包含可见格式和连续图片定位语义。",
+      "actual": "上一行的合成前缀。 这是一段专门用于测试的合成锚点文本，其中包含可见格式和连续图片定位语义。",
+      "normalized_source": "这是一段专门用于测试的合成锚点文本，其中包含可见格式和连续图片定位语义。",
+      "normalized_actual": "上一行的合成前缀。 这是一段专门用于测试的合成锚点文本，其中包含可见格式和连续图片定位语义。",
+      "matches": true
+    },
+    {
+      "name": "paired-formatting",
+      "source": "**粗体** __粗体二__ *斜体* _斜体二_ ~~删除~~",
+      "actual": "粗体 粗体二 斜体 斜体二 删除",
+      "normalized_source": "粗体 粗体二 斜体 斜体二 删除",
+      "normalized_actual": "粗体 粗体二 斜体 斜体二 删除",
+      "matches": true
+    },
+    {
+      "name": "blockquote-structural-prefix",
+      "source": "> 引用锚点",
+      "actual": "引用锚点",
+      "normalized_source": "引用锚点",
+      "normalized_actual": "引用锚点",
+      "matches": true
+    },
+    {
+      "name": "nbsp-and-numeric-entities",
+      "source": "空格&nbsp;测试 &#169; &#x1F43C;",
+      "actual": "空格\u00a0测试 © 🐼",
+      "normalized_source": "空格 测试 © 🐼",
+      "normalized_actual": "空格 测试 © 🐼",
+      "matches": true
+    },
+    {
+      "name": "named-and-unknown-entities",
+      "source": "实体 &CounterClockwiseContourIntegral; &zzzz;",
+      "actual": "实体 ∳ &zzzz;",
+      "normalized_source": "实体 ∳ &zzzz;",
+      "normalized_actual": "实体 ∳ &zzzz;",
+      "matches": true
+    },
+    {
+      "name": "code-span-protects-literal-markup",
+      "source": "` **literal** &copy; `",
+      "actual": "**literal** &copy;",
+      "normalized_source": "**literal** &copy;",
+      "normalized_actual": "**literal** &copy;",
+      "matches": true
+    },
+    {
+      "name": "escaped-ascii-punctuation",
+      "source": "这是\\*字面星号\\*，保留\\&copy; 和 \\[方括号\\]",
+      "actual": "这是*字面星号*，保留&copy; 和 [方括号]",
+      "normalized_source": "这是*字面星号*，保留&copy; 和 [方括号]",
+      "normalized_actual": "这是*字面星号*，保留&copy; 和 [方括号]",
+      "matches": true
+    },
+    {
+      "name": "balanced-inline-link",
+      "source": "[同文](https://example.com/a_(b))",
+      "actual": "同文",
+      "normalized_source": "同文",
+      "normalized_actual": "同文",
+      "matches": true
+    },
+    {
+      "name": "full-reference-link",
+      "source": "[同文][ref]",
+      "actual": "同文",
+      "normalized_source": "同文",
+      "normalized_actual": "同文",
+      "matches": true
+    },
+    {
+      "name": "collapsed-reference-link",
+      "source": "[同文][]",
+      "actual": "同文",
+      "normalized_source": "同文",
+      "normalized_actual": "同文",
+      "matches": true
+    },
+    {
+      "name": "uri-and-email-autolinks",
+      "source": "<https://example.com/a> <me@example.com>",
+      "actual": "https://example.com/a me@example.com",
+      "normalized_source": "https://example.com/a me@example.com",
+      "normalized_actual": "https://example.com/a me@example.com",
+      "matches": true
+    },
+    {
+      "name": "nfc-and-zero-width",
+      "source": "Café A​‌‍⁠﻿B",
+      "actual": "Café AB",
+      "normalized_source": "Café AB",
+      "normalized_actual": "Café AB",
+      "matches": true
+    },
+    {
+      "name": "zero-width-before-combining-mark",
+      "source": "Cafe​́",
+      "actual": "Café",
+      "normalized_source": "Café",
+      "normalized_actual": "Café",
+      "matches": true
+    },
+    {
+      "name": "visible-pipe-and-backticks-are-not-deleted",
+      "source": "A \\| B 和 \\`literal\\`",
+      "actual": "A | B 和 `literal`",
+      "normalized_source": "A | B 和 `literal`",
+      "normalized_actual": "A | B 和 `literal`",
+      "matches": true
+    },
+    {
+      "name": "outer-pipes-after-leading-space",
+      "source": " | **text** | ",
+      "actual": " | text | ",
+      "normalized_source": "text",
+      "normalized_actual": "text",
+      "matches": true
+    },
+    {
+      "name": "wrong-paragraph-remains-rejected",
+      "source": "**正确锚点段落**",
+      "actual": "正确锚点段落 后续错误段落",
+      "normalized_source": "正确锚点段落",
+      "normalized_actual": "正确锚点段落 后续错误段落",
+      "matches": false
+    }
+  ],
+  "binding_vectors": [
+    {
+      "name": "synthetic-image-binding",
+      "source_signature": "visual-dhash-v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "occurrence": 1,
+      "anchor": "这是一段专门用于测试的**合成锚点文本**，其中包含可见格式和连续图片定位语义。",
+      "dom_order": 10,
+      "placement": "after-anchor",
+      "binding_key": "media-v1-663ff1c0d30d505c2d16f90110f10e6e3703ec7ab46c218691e56fcbce97164f"
+    },
+    {
+      "name": "composer-start",
+      "source_signature": "visual-dhash-v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "occurrence": 1,
+      "anchor": "",
+      "dom_order": 0,
+      "placement": "composer-start",
+      "binding_key": "media-v1-f7bd221a921ec51e22fc81c76b5e35c649943fd463e4c17dded4739e873e7dae"
+    },
+    {
+      "name": "blockquote-second-occurrence",
+      "source_signature": "visual-dhash-v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "occurrence": 2,
+      "anchor": "> 引用锚点",
+      "dom_order": 4,
+      "placement": "after-anchor",
+      "binding_key": "media-v1-3b794bc320b410b9e4b57a8246b248f5b52b05c364cb140242b4f51f2badc1a7"
+    }
+  ]
+}
