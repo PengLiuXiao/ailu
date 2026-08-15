@@ -54,7 +54,13 @@ describe('complete onboarding documentation', () => {
       'scripts/upload_markdown_to_x_article.py',
       'scripts/parse_markdown.py',
       'scripts/export_x_cookies_from_chrome.py',
-      'pip install playwright pycryptodome',
+      'x-article-draft-uploader-v1.0.0',
+      'c53ea1b8b5d120c69af36afb222c0ee097928257',
+      'skills@1.5.22',
+      '--requirement "$AILU_X_SKILL_HOME/requirements.txt"',
+      'x-article-persistence-v1',
+      'examples/smoke-test.md',
+      '`preflight.errors` 为空',
       '目标 Skill 已存在；未覆盖',
       '从 Chrome 导入',
       '粘贴 JSON',
@@ -65,7 +71,7 @@ describe('complete onboarding documentation', () => {
       'X 草稿预检通过',
       'X 草稿已创建并严格核验',
       '不点击 X 的最终发布按钮',
-      '不要默认把 [`mcncarl/yichen-skills`',
+      '不要安装会继续变化的任意 `main` 快照',
     ]) {
       expect(guide).toContain(required);
     }

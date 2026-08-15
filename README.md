@@ -133,7 +133,7 @@ npm run deploy:plan -- --vault "/Users/你的用户名/Documents/My Vault"
 - 从源码构建需要 Node.js 22.13 或更高版本；核心写锁和部署要求可执行的 `/usr/bin/python3`。
 - 至少独立安装一个受支持的 Agent CLI：[Claude Code](https://code.claude.com/) 或 [Codex](https://github.com/openai/codex)。
 - 使用飞书同步时，需另行安装 [lark-cli](https://github.com/larksuite/cli)；Ailu 会在草稿区完成中国版飞书 `brand=feishu` 的配置与扫码授权，不会连接国际版 Lark。插件只发现现有 CLI，不代为安装或升级。
-- 使用 X 文章草稿时，需由仓库维护者提供与当前 Ailu 版本匹配、经过复核的 `x-article-draft-uploader` Skill，并提供可运行的 Python 3 与 Playwright 环境；不要默认把 [`mcncarl/yichen-skills`](https://github.com/mcncarl/yichen-skills) 的任意 `main` 快照当成兼容发行版。插件只发现和调用现有 Skill，不复制、安装或升级它。该 Skill 使用其仓库现有的个人学习与非商业协议，不随 Ailu 的 AGPL 许可证重新授权。
+- 使用 X 文章草稿时，安装已与 Ailu `0.2.0` 复核的公开 tag [`x-article-draft-uploader-v1.0.0`](https://github.com/mcncarl/yichen-skills/tree/x-article-draft-uploader-v1.0.0/yichen-x-article-draft-uploader)（commit `c53ea1b8b5d120c69af36afb222c0ee097928257`），并使用该版本锁定的 Python 依赖；不要安装会继续变化的任意 `main` 快照。插件只发现和调用现有 Skill，不复制、安装或升级它。该 Skill 使用其仓库现有的个人学习与非商业协议，不随 Ailu 的 AGPL 许可证重新授权。
 
 插件会从用户配置的路径、`~/.ailu/runtimes/`、系统 `PATH` 与支持的桌面客户端中发现现有可执行文件，不会自动复制、安装或升级 CLI 及其依赖。托管 runtime 必须是非符号链接的真实可执行文件。Ailu 只确认可执行文件和可选版本文本，不能预先保证旧版 CLI 的协议兼容；首次使用前应在终端升级、登录并执行一次版本检查。
 

@@ -250,7 +250,27 @@ sudo systemctl reload caddy
 
 ### 2.1 先取得与当前 Ailu 匹配的 Skill
 
-Ailu 不捆绑 `x-article-draft-uploader`。仓库维护者必须向使用者提供一个与当前 Ailu 版本匹配、经过复核的 Skill 目录或明确的 commit/tag；不要默认把 [`mcncarl/yichen-skills`](https://github.com/mcncarl/yichen-skills) 的任意 `main` 快照当成兼容发行版。
+Ailu 不捆绑 `x-article-draft-uploader`。Ailu `0.2.0` 当前复核并固定使用下面的公开版本：
+
+- 仓库：[`mcncarl/yichen-skills`](https://github.com/mcncarl/yichen-skills)
+- tag：[`x-article-draft-uploader-v1.0.0`](https://github.com/mcncarl/yichen-skills/tree/x-article-draft-uploader-v1.0.0/yichen-x-article-draft-uploader)
+- commit：[`c53ea1b8b5d120c69af36afb222c0ee097928257`](https://github.com/mcncarl/yichen-skills/commit/c53ea1b8b5d120c69af36afb222c0ee097928257)
+- 结果契约：`x-article-persistence-v1`
+
+不要安装会继续变化的任意 `main` 快照。首次安装到 Ailu 可发现的 Codex 目录时，直接运行下面的固定版本命令。它先检查目标目录，已有旧版本时只报错，不会覆盖：
+
+```bash
+(
+  skill_target="$HOME/.codex/skills/x-article-draft-uploader"
+  if [ -e "$skill_target" ]; then
+    printf '目标 Skill 已存在；未覆盖。请先核对现有版本：%s\n' "$skill_target" >&2
+    exit 1
+  fi
+  npx --yes skills@1.5.22 add \
+    "https://github.com/mcncarl/yichen-skills/tree/x-article-draft-uploader-v1.0.0/yichen-x-article-draft-uploader" \
+    --skill x-article-draft-uploader --global --agent codex --copy --yes
+)
+```
 
 当前 Ailu 只会自动发现以下两个精确目录名：
 
@@ -259,18 +279,20 @@ Ailu 不捆绑 `x-article-draft-uploader`。仓库维护者必须向使用者提
 ~/.codex/skills/x-article-draft-uploader/
 ```
 
-推荐统一安装到 `~/.agents/skills/x-article-draft-uploader/`。目录内至少应有：
+上面的固定命令安装到 `~/.codex/skills/x-article-draft-uploader/`；Ailu 可以直接发现。手工管理多个 Agent 时，也可以统一安装到 `~/.agents/skills/x-article-draft-uploader/`。目录内至少应有：
 
 ```text
 SKILL.md
 scripts/upload_markdown_to_x_article.py
 scripts/parse_markdown.py
 scripts/export_x_cookies_from_chrome.py
+requirements.txt
+VERSION
 ```
 
 只装到 `~/.claude/skills/` 不会被 Ailu 自动发现。若在设置页手填上传脚本，必须填写完整绝对路径；该字段不会展开 `~`。
 
-如果维护者提供的复核目录名是 `yichen-x-article-draft-uploader`，先确认源目录存在、目标不存在，再复制并改成 Ailu 识别的目录名；下面的分支在目标已存在时只报错，不会执行 `cp`：
+仅在需要手工安装到 `~/.agents` 时，先检出上面的固定 tag，确认源目录存在、目标不存在，再复制并改成 Ailu 识别的目录名；下面的分支在目标已存在时只报错，不会执行 `cp`：
 
 ```bash
 AILU_X_SKILL_SOURCE="/绝对路径/已复核的/yichen-x-article-draft-uploader"
@@ -290,13 +312,20 @@ fi
 
 ### 2.2 安装独立 Python 与 Playwright 环境
 
-建议为 X 上传器建立独立虚拟环境，避免 Finder 启动的 Obsidian 找不到 shell 中的 Python 包：
+建议为 X 上传器建立独立虚拟环境，避免 Finder 启动的 Obsidian 找不到 shell 中的 Python 包。下面默认使用固定命令安装后的 `~/.codex` 路径；若手工装在 `~/.agents`，只改 `AILU_X_SKILL_HOME` 这一行：
 
 ```bash
-python3 -m venv "$HOME/.ailu/runtimes/x-uploader-venv"
-"$HOME/.ailu/runtimes/x-uploader-venv/bin/python" -m pip install --upgrade pip
-"$HOME/.ailu/runtimes/x-uploader-venv/bin/python" -m pip install playwright pycryptodome
-"$HOME/.ailu/runtimes/x-uploader-venv/bin/python" -m playwright install chromium
+(
+  AILU_X_SKILL_HOME="$HOME/.codex/skills/x-article-draft-uploader"
+  if [ ! -f "$AILU_X_SKILL_HOME/requirements.txt" ]; then
+    printf '固定版本的 requirements.txt 不存在；停止安装。\n' >&2
+    exit 1
+  fi
+  python3 -m venv "$HOME/.ailu/runtimes/x-uploader-venv"
+  "$HOME/.ailu/runtimes/x-uploader-venv/bin/python" -m pip install \
+    --requirement "$AILU_X_SKILL_HOME/requirements.txt"
+  "$HOME/.ailu/runtimes/x-uploader-venv/bin/python" -m playwright install chromium
+)
 ```
 
 做一个不登录 X、也不读取 Cookie 的本地依赖检查：
@@ -311,6 +340,17 @@ python3 -m venv "$HOME/.ailu/runtimes/x-uploader-venv"
 ```text
 /Users/你的用户名/.ailu/runtimes/x-uploader-venv/bin/python
 ```
+
+再运行固定版本自带的纯本地 smoke test（冒烟测试）。它不读取 Cookie、不登录 X，也不会打开 X：
+
+```bash
+"$HOME/.ailu/runtimes/x-uploader-venv/bin/python" \
+  "$HOME/.codex/skills/x-article-draft-uploader/scripts/upload_markdown_to_x_article.py" \
+  "$HOME/.codex/skills/x-article-draft-uploader/examples/smoke-test.md" \
+  --dry-run
+```
+
+成功信号是输出中的 `preflight.errors` 为空；无封面 warning 是这个固定样例的预期结果。
 
 ### 2.3 由使用者在 Chrome 登录 X，再导入 Cookie
 
@@ -339,7 +379,7 @@ Ailu 会把规范化后的 Cookie 原子写入 `~/.ailu/secrets/x/cookies.json`�
 AILU_X_COOKIE_STAGING="$(mktemp -t ailu-x-cookie)"
 chmod 600 "${AILU_X_COOKIE_STAGING}"
 "$HOME/.ailu/runtimes/x-uploader-venv/bin/python" \
-  "$HOME/.agents/skills/x-article-draft-uploader/scripts/export_x_cookies_from_chrome.py" \
+  "$HOME/.codex/skills/x-article-draft-uploader/scripts/export_x_cookies_from_chrome.py" \
   --profile "/Users/你的用户名/Library/Application Support/Google/Chrome/Profile 1" \
   --output "${AILU_X_COOKIE_STAGING}"
 printf '%s\n' "${AILU_X_COOKIE_STAGING}"
