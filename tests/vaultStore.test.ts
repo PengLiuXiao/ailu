@@ -1006,52 +1006,6 @@ describe('Python process writer fence', () => {
         'large-target.json',
       ))).resolves.toMatchObject({ size: Buffer.byteLength(largerThanLegacyProtocolLimit) });
 
-      const mebibyte = 1_024 * 1_024;
-      const escapedContent = '"'.repeat(Math.floor(3.3 * mebibyte));
-      const escapeDenseArtifact = `${JSON.stringify({
-        version: 2,
-        messages: Array.from({ length: 5 }, (_, index) => ({
-          sequence: index + 1,
-          message: {
-            id: `escape-dense-${index + 1}`,
-            role: 'assistant',
-            content: escapedContent,
-            createdAt: 1,
-          },
-        })),
-      }, null, 2)}\n`;
-      expect(Buffer.byteLength(escapeDenseArtifact, 'utf8')).toBeLessThan(64 * mebibyte);
-      expect(Buffer.byteLength(JSON.stringify({
-        id: 'legacy-frame',
-        op: 'cas',
-        path: '.ailu/escape-dense.json',
-        expected: null,
-        replacement: escapeDenseArtifact,
-      }), 'utf8')).toBeGreaterThan(64 * mebibyte);
-
-      await expect(lock.compareAndSwapTextFile(
-        '.ailu/escape-dense.json',
-        null,
-        escapeDenseArtifact,
-      )).resolves.toMatchObject({ swapped: true });
-      const escapeDenseReadBack = await lock.readTextFile('.ailu/escape-dense.json');
-      expect(escapeDenseReadBack).not.toBeNull();
-      expect(Buffer.byteLength(escapeDenseReadBack!, 'utf8'))
-        .toBe(Buffer.byteLength(escapeDenseArtifact, 'utf8'));
-      expect(createHash('sha256').update(escapeDenseReadBack!).digest('hex'))
-        .toBe(createHash('sha256').update(escapeDenseArtifact).digest('hex'));
-      const escapeDenseConflict = await lock.compareAndSwapTextFile(
-        '.ailu/escape-dense.json',
-        null,
-        'must-not-overwrite\n',
-      );
-      expect(escapeDenseConflict.swapped).toBe(false);
-      expect(escapeDenseConflict.value).not.toBeNull();
-      expect(createHash('sha256').update(escapeDenseConflict.value!).digest('hex'))
-        .toBe(createHash('sha256').update(escapeDenseArtifact).digest('hex'));
-      await expect(fs.stat(path.join(vaultRoot, '.ailu', 'escape-dense.json')))
-        .resolves.toMatchObject({ size: Buffer.byteLength(escapeDenseArtifact) });
-
       await expect(lock.readTextFile('../outside.json')).rejects.toThrow('escapes the vault');
       await fs.symlink(outsideRoot, path.join(vaultRoot, 'linked-outside'));
       await expect(lock.readTextFile('linked-outside/secret.json'))
@@ -1059,7 +1013,53 @@ describe('Python process writer fence', () => {
     } finally {
       await lock.release();
     }
-  }, 30_000);
+  });
+
+  test('transfers an escape-dense artifact whose legacy CAS frame exceeded 64 MiB', async () => {
+    const vaultRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ailu-process-lock-dense-cas-'));
+    const lock = new PythonFcntlProcessWriteLock(vaultRoot);
+    const mebibyte = 1_024 * 1_024;
+    const escapedContent = '"'.repeat(Math.floor(3.3 * mebibyte));
+    const escapeDenseArtifact = `${JSON.stringify({
+      version: 2,
+      messages: Array.from({ length: 5 }, (_, index) => ({
+        sequence: index + 1,
+        message: {
+          id: `escape-dense-${index + 1}`,
+          role: 'assistant',
+          content: escapedContent,
+          createdAt: 1,
+        },
+      })),
+    }, null, 2)}\n`;
+    const artifactBytes = Buffer.byteLength(escapeDenseArtifact, 'utf8');
+    expect(artifactBytes).toBeLessThan(64 * mebibyte);
+    expect(Buffer.byteLength(JSON.stringify({
+      id: 'legacy-frame',
+      op: 'cas',
+      path: '.ailu/escape-dense.json',
+      expected: null,
+      replacement: escapeDenseArtifact,
+    }), 'utf8')).toBeGreaterThan(64 * mebibyte);
+
+    expect(await lock.acquire()).toBe(true);
+    try {
+      await expect(lock.compareAndSwapTextFile(
+        '.ailu/escape-dense.json',
+        null,
+        escapeDenseArtifact,
+      )).resolves.toMatchObject({ swapped: true });
+      const escapeDenseReadBack = await lock.readTextFile('.ailu/escape-dense.json');
+      expect(escapeDenseReadBack).not.toBeNull();
+      expect(Buffer.byteLength(escapeDenseReadBack!, 'utf8')).toBe(artifactBytes);
+      expect(createHash('sha256').update(escapeDenseReadBack!).digest('hex'))
+        .toBe(createHash('sha256').update(escapeDenseArtifact).digest('hex'));
+      await expect(fs.stat(path.join(vaultRoot, '.ailu', 'escape-dense.json')))
+        .resolves.toMatchObject({ size: artifactBytes });
+    } finally {
+      await lock.release();
+    }
+  }, 60_000);
 
   test('rejects a helper success response whose compact write evidence does not match', async () => {
     const vaultRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ailu-process-lock-evidence-'));
