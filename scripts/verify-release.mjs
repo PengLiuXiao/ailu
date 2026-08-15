@@ -75,11 +75,17 @@ requireCondition(manifest.name === EXPECTED_PLUGIN_NAME, `Manifest name must be 
 requireCondition(manifest.version === EXPECTED_VERSION, `Manifest version must be ${EXPECTED_VERSION}.`);
 requireCondition(packageJson.name === EXPECTED_PLUGIN_ID, 'Package name must match the plugin id.');
 requireCondition(packageJson.version === manifest.version, 'Package and manifest versions must match.');
+requireCondition(packageJson.private === true, 'The source package must remain private to prevent accidental npm publishing.');
 requireCondition(packageJson.license === 'AGPL-3.0-or-later', 'Package license must be AGPL-3.0-or-later.');
 requireCondition(packageLock.name === packageJson.name, 'Package lock name must match package.json.');
 requireCondition(packageLock.version === packageJson.version, 'Package lock version must match package.json.');
 requireCondition(packageLock.packages?.['']?.name === packageJson.name, 'Package lock root name must match package.json.');
 requireCondition(packageLock.packages?.['']?.version === packageJson.version, 'Package lock root version must match package.json.');
+requireCondition(
+  packageJson.engines?.node === '>=22.13'
+    && packageLock.packages?.['']?.engines?.node === '>=22.13',
+  'Package metadata must require Node.js 22.13 or newer.',
+);
 requireCondition(
   packageJson.dependencies?.entities === '^4.5.0'
     && packageLock.packages?.['']?.dependencies?.entities === '^4.5.0'
@@ -148,8 +154,8 @@ verifyBuildAttestation(publicSourceTree.files);
 const license = fs.readFileSync('LICENSE', 'utf8');
 requireCondition(license.includes('GNU AFFERO GENERAL PUBLIC LICENSE'), 'Root license must contain AGPL-3.0.');
 requireCondition(
-  license.startsWith('Ailu Obsidian plugin\n'),
-  'Root license must identify the canonical Ailu product.',
+  license.trimStart().startsWith('GNU AFFERO GENERAL PUBLIC LICENSE'),
+  'Root license must start with the standard AGPL-3.0 text for license detection.',
 );
 
 const mpPreviewLicense = fs.readFileSync('LICENSES/MP-PREVIEW-MIT.txt', 'utf8');
@@ -413,6 +419,7 @@ for (const deployInvariant of [
   'rolled_back_pre_pointer',
   'rollback_committed_by_community_pointer',
   'community-plugins.json',
+  'VAULT_COMMUNITY_PLUGINS_NOT_INITIALIZED',
   'fs.constants.COPYFILE_EXCL',
   'CANONICAL_AUTHORITY_CHANGED',
   'build-attestation.json',

@@ -33,6 +33,23 @@ describe('RuntimeDiscovery', () => {
     expect(status.binaryPath).toBe(configured);
   });
 
+  test('reads an env-node CLI version through the configured binary sibling directory', () => {
+    if (process.platform === 'win32') return;
+    const binDir = path.join(tempDir, '.nvm', 'versions', 'node', 'v22.14.0', 'bin');
+    const configured = path.join(binDir, 'claude');
+    makeExecutable(path.join(binDir, 'node'), '#!/bin/sh\nprintf "claude 9.9.0\\n"\n');
+    makeExecutable(configured, '#!/usr/bin/env node\n');
+    const discovery = new RuntimeDiscovery({
+      env: { HOME: tempDir, AILU_HOME: tempDir, PATH: '' },
+      configuredPaths: { claude: configured },
+    });
+
+    const status = discovery.resolve('claude', { withVersion: true });
+
+    expect(status.found).toBe(true);
+    expect(status.version).toBe('claude 9.9.0');
+  });
+
   test('falls back to managed runtime before PATH', () => {
     const managed = path.join(tempDir, 'runtimes/codex/node_modules/.bin/codex');
     const pathBin = path.join(tempDir, 'bin/codex');

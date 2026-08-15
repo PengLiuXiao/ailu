@@ -77,6 +77,7 @@ import {
   buildClaudeSessionConfigKey,
   buildCodexSessionConfigKey,
   conversationHandoffHint,
+  resolveAvailableDefaultAgent,
   shouldAttemptSessionResume,
   shouldResumeClaudeSession,
   shouldResumeCodexSession,
@@ -97,6 +98,7 @@ import {
 import { ChatUiStatePersistence } from './chatUiStatePersistence';
 import {
   reconcileStableMessageOrder,
+  resolveMemoryRuntimeDiagnostic,
   resolveChatMessageRenderMode,
   resolveChatMessageRenderUpdate,
   resolvePlainTextMutation,
@@ -116,6 +118,8 @@ export interface ChatViewDeps {
   chatContextService: ChatContextService;
   memoryReadService: VerifiedMemoryReadService;
   memoryWriteService: VerifiedMemoryWriteService;
+  isMemoryRuntimeReady: () => boolean;
+  setMemoryRuntimeDiagnostic: (diagnostic: string | null) => void;
   chatUiState: ChatConversationUiStateCache;
   chatUiStatePersistence: ChatUiStatePersistence;
   getChatUiStatePersistenceWarning: () => string | null;
@@ -270,9 +274,19 @@ export class AiluChatView extends ItemView {
 
   override async onOpen(): Promise<void> {
     brandAiluWorkspaceTab(this.leaf);
+    let promptRuntimeSetup = false;
     if (!this.viewInitialized) {
-      this.agentId = this.deps.getSettings().defaultAgentId;
-      this.planMode = this.deps.getSettings().planModeDefault;
+      const settings = this.deps.getSettings();
+      const discovery = new RuntimeDiscovery({
+        configuredPaths: settings.configuredPaths,
+        configSources: settings.configSources,
+      });
+      const availability = Object.fromEntries(
+        SELECTABLE_AGENT_IDS.map(agentId => [agentId, discovery.resolve(agentId).found]),
+      ) as Record<AgentId, boolean>;
+      this.agentId = resolveAvailableDefaultAgent(settings.defaultAgentId, availability);
+      promptRuntimeSetup = !availability[this.agentId] && process.platform !== 'win32';
+      this.planMode = settings.planModeDefault;
       this.viewInitialized = true;
     }
     this.containerEl.addClass('ailu-view-container');
@@ -320,6 +334,7 @@ export class AiluChatView extends ItemView {
     this.renderMessages();
     this.refreshStatus();
     if (this.agentId === 'codex') void this.deps.runtimeManager.refreshCodexStatus();
+    if (promptRuntimeSetup) this.openRuntimeSetup();
   }
 
   override async onClose(): Promise<void> {
@@ -541,6 +556,11 @@ export class AiluChatView extends ItemView {
         if (section === 'publishing') this.deps.openPublishing();
       },
       renderActions: headerActions => {
+        this.statusEl = headerActions.createSpan({
+          cls: 'ailu-runtime-status',
+          attr: { 'aria-live': 'polite' },
+        });
+
         const newChatButton = headerActions.createEl('button', { cls: 'clickable-icon ailu-header-btn' });
         setIcon(newChatButton, 'plus');
         newChatButton.ariaLabel = '新建对话';
@@ -2523,7 +2543,8 @@ export class AiluChatView extends ItemView {
       mode,
       memoryActionAvailable: message.role === 'assistant'
         && Boolean(message.content.trim())
-        && mode !== 'live-plain',
+        && mode !== 'live-plain'
+        && this.deps.isMemoryRuntimeReady(),
     };
   }
 
@@ -2973,15 +2994,9 @@ export class AiluChatView extends ItemView {
       ? `${resolved.prompt}\n\n${activeContext.prompt}`
       : resolved.prompt;
     const verifiedMemory = await this.deps.memoryReadService.read(memoryQuery);
-    const memoryRuntimeWarning = verifiedMemory.warnings.find(warning => (
-      warning.code.startsWith('RUNTIME_')
-    ));
-    if (memoryRuntimeWarning) {
-      new Notice(`Agent Memory 已禁用：${userFacingErrorText(
-        memoryRuntimeWarning.reason,
-        '记忆服务暂时不可用，当前对话仍可继续。',
-      )}`);
-    }
+    this.deps.setMemoryRuntimeDiagnostic(
+      resolveMemoryRuntimeDiagnostic(verifiedMemory.warnings),
+    );
     const runtimePrompt = [skillPrompt, verifiedMemory.prompt, userPrompt]
       .filter(Boolean)
       .join('\n\n');

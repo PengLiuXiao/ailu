@@ -123,7 +123,7 @@ export class AgentAdapter extends EventEmitter {
       this.emitEvent({ type: 'done' });
       return Promise.resolve();
     }
-    const baseEnv = runtimeEnvironment(process.env);
+    const baseEnv = runtimeEnvironment(process.env, this.options.binaryPath);
     let projection: ReturnType<typeof prepareProviderProjection>;
     try {
       projection = effectiveRequest.configSource === 'ccSwitchCurrent'

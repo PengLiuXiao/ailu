@@ -248,6 +248,7 @@
     "tests/publishingSourceScroll.test.ts",
     "tests/publishingTargetActivity.test.ts",
     "tests/reasoningCapabilities.test.ts",
+    "tests/releaseWorkflow.test.ts",
     "tests/runtimeDiscovery.test.ts",
     "tests/runtimeErrors.test.ts",
     "tests/runtimeManager.test.ts",

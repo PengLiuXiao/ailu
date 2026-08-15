@@ -167,7 +167,7 @@ export class RuntimeManager {
         binaryPath: discovery.binaryPath,
         binarySource: discovery.source,
         version: discovery.version,
-        env: runtimeEnvironment(process.env),
+        env: runtimeEnvironment(process.env, discovery.binaryPath),
       })
       : this.codexRuntime.markUnavailable(discovery.error ?? 'codex was not found.').then(() => (
         this.codexRuntime.getStatus()
@@ -323,7 +323,7 @@ export class RuntimeManager {
         binaryPath: status.binaryPath,
         binarySource: status.source,
         version: status.version,
-        env: runtimeEnvironment(process.env),
+        env: runtimeEnvironment(process.env, status.binaryPath),
         executionIsCurrent: () => this.executionFingerprintIsCurrent(request),
       }, deliver);
       appendLocalLog('runtime_turn_finish', {

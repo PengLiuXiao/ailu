@@ -33,4 +33,10 @@ describe('chat composer UI contract', () => {
       /if \(event\.key === 'Escape'\) \{[\s\S]{0,220}?this\.stopCurrentConversation\(\);/,
     );
   });
+
+  it('keeps runtime readiness visible and makes Agent Memory actions capability-gated', () => {
+    expect(chatViewSource).toContain("cls: 'ailu-runtime-status'");
+    expect(chatViewSource).toContain('&& this.deps.isMemoryRuntimeReady()');
+    expect(chatViewSource).not.toContain('new Notice(`Agent Memory 已禁用：');
+  });
 });

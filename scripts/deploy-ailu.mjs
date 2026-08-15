@@ -541,8 +541,18 @@ function buildPlan(vaultInput, artifacts, obsidianRunning) {
   const configDir = path.join(vault, '.obsidian');
   assertSafeDirectory(configDir, 'Vault .obsidian directory');
   const pluginsDir = path.join(configDir, 'plugins');
+  if (!safeLstat(pluginsDir)) {
+    throw new Error(
+      'VAULT_COMMUNITY_PLUGINS_NOT_INITIALIZED: open this Vault in Obsidian, enable Community plugins, quit Obsidian, and retry.',
+    );
+  }
   assertSafeDirectory(pluginsDir, 'Vault plugin directory');
   const communityPath = path.join(configDir, 'community-plugins.json');
+  if (!safeLstat(communityPath)) {
+    throw new Error(
+      'VAULT_COMMUNITY_PLUGINS_NOT_INITIALIZED: open this Vault in Obsidian, enable Community plugins, quit Obsidian, and retry.',
+    );
+  }
   const community = readJsonArrayAuthority(communityPath, 'community-plugins.json');
   const targetDir = path.join(pluginsDir, CANONICAL_PLUGIN_ID);
   const targetState = safeLstat(targetDir);

@@ -7,6 +7,7 @@ import { AILU_IDS, STORAGE_IDS } from '../ids';
 import { managedBinaryPath, runtimeManagedDir } from '../paths';
 import type { AgentId, AgentStatus, RuntimeConfigSource } from '../types';
 import { resolveCommand, readCommandVersion } from '../utils/command';
+import { executableSearchPath, runtimeEnvironment } from '../utils/env';
 import { executableFileExists } from '../utils/fs';
 import { resolveCodexDesktopBinary } from './codexDesktop';
 
@@ -72,7 +73,10 @@ export class RuntimeDiscovery {
     // a caller actually displays the version (settings/diagnostics).
     if (options.withVersion && entry.version === undefined) {
       entry.version = entry.status.binaryPath
-        ? readCommandVersion(entry.status.binaryPath, this.env)
+        ? readCommandVersion(
+          entry.status.binaryPath,
+          runtimeEnvironment(this.env, entry.status.binaryPath),
+        )
         : null;
     }
     return { ...entry.status, configSource, version: entry.version ?? null };
@@ -192,14 +196,7 @@ export class RuntimeDiscovery {
   private buildSearchEnv(): NodeJS.ProcessEnv {
     return {
       ...this.env,
-      PATH: [
-        this.env.PATH ?? '',
-        path.join(os.homedir(), '.local', 'bin'),
-        path.join(os.homedir(), '.npm-global', 'bin'),
-        path.join(os.homedir(), '.volta', 'bin'),
-        '/opt/homebrew/bin',
-        '/usr/local/bin',
-      ].join(path.delimiter),
+      PATH: executableSearchPath(this.env.PATH, this.env.HOME?.trim() || os.homedir()),
     };
   }
 

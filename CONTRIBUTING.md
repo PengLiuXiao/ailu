@@ -9,7 +9,7 @@
 
 ## Development
 
-Use a supported Node.js version and install the exact lockfile:
+Use Node.js 22.13 or newer and install the exact lockfile:
 
 ```bash
 npm ci

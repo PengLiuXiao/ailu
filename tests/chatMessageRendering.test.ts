@@ -5,6 +5,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   reconcileStableMessageOrder,
+  resolveMemoryRuntimeDiagnostic,
   resolveChatMessageRenderMode,
   resolveChatMessageRenderUpdate,
   resolvePlainTextMutation,
@@ -63,6 +64,16 @@ class FakeParent {
 }
 
 describe('chat message rendering stability', () => {
+  test('maps optional runtime warnings to capability state without treating policy warnings as failure', () => {
+    expect(resolveMemoryRuntimeDiagnostic([{ code: 'SEARCH_INDEX_MISSING' }])).toBeNull();
+    expect(resolveMemoryRuntimeDiagnostic([{
+      code: 'RUNTIME_RETRIEVE_FAILED',
+      reason: 'memoryctl exited',
+    }])).toBe('memoryctl exited');
+    expect(resolveMemoryRuntimeDiagnostic([{ code: 'RUNTIME_HANDSHAKE_INCOMPATIBLE' }]))
+      .toBe('RUNTIME_HANDSHAKE_INCOMPATIBLE');
+  });
+
   test('keeps every existing node untouched when message order is already correct', () => {
     const control = new FakeNode('control');
     const user = new FakeNode('user');

@@ -2,6 +2,93 @@
 
 Ailu 是一款桌面端 Obsidian 插件，把本地 Agent 对话、内容预览、公众号草稿上传、飞书文档同步和 X Article 草稿创建收进同一个简约工作台。显示名为 `Ailu`，插件 ID、包名、存储和 Agent Memory 身份统一为 `ailu`。
 
+## 当前分发状态
+
+Ailu 0.2.0 当前保存在私有 GitHub 仓库，尚未提供可直接安装的 GitHub Release。获授权的协作者需要从源码构建；GitHub 的 “Source code” 压缩包不包含被忽略的 `main.js` 与 `build-attestation.json`，不能直接当作 Obsidian 插件包使用。Ailu 仓库权限也不会自动授予另一个私有仓库 `wechat-relay` 的权限。
+
+当前可写功能的已验证支持范围是 macOS/POSIX。Windows 会 fail-closed 以只读模式启动，不执行 Agent 对话、行内修改、设置写入或部署。
+
+## 从源码安装
+
+### 1. 准备环境
+
+- Obsidian Desktop 1.11.4 或更高版本；先打开目标 Vault，在“设置 → 第三方插件”中启用第三方插件，使 `.obsidian/plugins/` 和 `.obsidian/community-plugins.json` 完成初始化。
+- Node.js 22.13 或更高版本及 npm。
+- 核心写锁和部署器要求 `/usr/bin/python3` 可执行。这不是只有 X 流程才需要的可选依赖。
+- 安装当前受支持版本的 [Claude Code](https://code.claude.com/) 或 [Codex](https://github.com/openai/codex)，至少选择一个，并先在终端完成一次登录。
+- 使用有权访问本私有仓库的 GitHub 账号完成 `gh auth login`。
+
+先核对前置条件：
+
+```bash
+node --version
+npm --version
+/usr/bin/python3 --version
+claude --version  # 或 codex --version
+gh auth status
+```
+
+### 2. 克隆、审计并构建
+
+```bash
+gh repo clone mcncarl/ailu
+cd ailu
+npm ci
+npm run audit:dependencies
+npm run check
+```
+
+`npm run check` 会依次运行全量测试、公开源码清单策略、lint、正式构建和 Release 验证。完成后应生成 `main.js` 与 `build-attestation.json`。
+
+### 3. 只读检查并安装到一个 Vault
+
+Vault 参数必须是带引号的真实绝对物理路径，不能使用 `~`、符号链接路径或自定义 Obsidian 配置目录。先执行不会改动 Vault 的 plan：
+
+```bash
+npm run deploy:plan -- --vault "/Users/你的用户名/Documents/My Vault"
+```
+
+确认输出中的 Vault、插件 ID 和四个产物哈希无误，完全退出所有 Obsidian 进程，再执行 apply：
+
+```bash
+npm run deploy:apply -- --vault "/Users/你的用户名/Documents/My Vault"
+```
+
+保存命令输出中的 receipt 路径；它是后续核对、恢复或回滚的依据。部署器会启用 `ailu`，不会删除 `.ailu/` 数据，也不会删除插件目录或部署证据。
+
+### 4. 首次启动验收
+
+1. 重开 Obsidian，在“设置 → 第三方插件”确认 Ailu 已启用。
+2. 打开“设置 → Ailu”，确认 Agent 行显示已就绪；若只安装了 Codex 或 Claude Code，Ailu 会自动选择已安装的那个。若两者都未找到，会直接打开安装引导。
+3. 如果终端里可用、Obsidian 中却显示未安装，在 Ailu 设置里配置真实可执行文件路径。通过 Finder 启动的 Obsidian 可能看不到 nvm、fnm、asdf 或 mise 的 shell shim；同时确保该 CLI 所需的 `node` 目录也对图形应用可见。
+4. 保持“完全访问”关闭，并先打开对话框中的 `Plan`。点击左侧 Ailu 图标，或使用命令面板 `Ailu: 打开对话`，发送：`只回复 OK，不读写任何文件。`
+5. 再打开一篇普通 Markdown，发送：`只读取当前笔记并概括三点，不修改文件。` 确认标题栏运行状态、回复和本地历史都正常。
+6. 使用命令面板 `Ailu: 打开草稿区`，确认当前 Markdown 的本地预览可打开。飞书、X 和公众号属于独立的可选集成，主对话验收通过后再分别配置。
+
+“完全访问”关闭不等于所有普通对话都只读：普通模式仍会把所选 CLI 限制在其受限工作区权限内；其中 Codex 当前使用 `workspace-write` 且不逐条弹出批准。需要纯只读规划时保持 `Plan` 开启，确认需求后再关闭。
+
+兼容的 Agent Memory Runtime v2 是可选的本机增强能力，不随仓库安装。没有 `~/.config/agent-memory/scripts/memoryctl` 时，对话继续正常工作，记忆检索和“沉淀到记忆”入口会保持关闭；不要把它的缺失当成 Agent CLI 故障。
+
+### 更新
+
+```bash
+git pull --ff-only
+npm ci
+npm run audit:dependencies
+npm run check
+npm run deploy:plan -- --vault "/Users/你的用户名/Documents/My Vault"
+```
+
+确认 plan 后退出所有 Obsidian，再执行同一 Vault 的 `deploy:apply`。一次只更新一个 Vault，重开并验收后再处理下一个。
+
+### 常见阻断
+
+- `VAULT_COMMUNITY_PLUGINS_NOT_INITIALIZED`：先用 Obsidian 打开该 Vault 并启用第三方插件，然后退出 Obsidian 重试。
+- `AILU_PYTHON_MISSING`：确认 `/usr/bin/python3 --version` 成功；缺失时核心写入也会转为只读。
+- `OBSIDIAN_RUNNING`：apply 前仍有 Obsidian 进程；保存工作后完全退出再重试。
+- `Vault path must be canonical`：传入了符号链接或非物理路径；换成带引号的真实绝对路径。
+- Agent 显示“未安装”或首次连接报错：先在终端核对 CLI 版本与登录，再检查 Ailu 设置中的可执行路径；旧 CLI 可能不支持当前依赖的协议参数，应先升级 CLI 后复测。
+
 ## 功能
 
 ### AI 助手
@@ -9,7 +96,7 @@ Ailu 是一款桌面端 Obsidian 插件，把本地 Agent 对话、内容预览�
 - 在 Obsidian 侧边栏中使用 Claude Code 或 Codex。
 - 支持文件引用、斜杠命令、模型、自定义供应商以及 Markdown 选区内联编辑。
 - 对话框会发现本机 Claude Code、Codex、`~/.agents/skills` 与 Codex 插件缓存中的 Skill 入口，只读取名称、说明和位置用于候选列表；用户自行选择要启用的创作 Skill。只有明确选中后，当前 Agent 才会读取对应 `SKILL.md` 及其相对引用，Ailu 不捆绑、复制或自动安装个人 Skill。
-- 每次发送前只从共享 Agent 记忆中检索 `app_id=ailu`、用户级 `project_id=global` 与默认项目 `project_id=ailu` 的创作偏好与项目工作流；`global` 只允许命中 `用户记忆/`，`项目/` 与 `工作流/` 必须使用真实项目 ID。检索完全在本机执行，结果仅作为写作上下文，不构成上传、发布、发消息、付费、凭证读取或删除授权。写入其他项目时必须显式传入该项目的真实 `project_id`，不会被底层强行归到 Ailu。
+- 若本机安装了兼容的 Agent Memory Runtime v2，每次发送前只从共享 Agent 记忆中检索 `app_id=ailu`、用户级 `project_id=global` 与默认项目 `project_id=ailu` 的创作偏好与项目工作流；`global` 只允许命中 `用户记忆/`，`项目/` 与 `工作流/` 必须使用真实项目 ID。检索完全在本机执行，结果仅作为写作上下文，不构成上传、发布、发消息、付费、凭证读取或删除授权。写入其他项目时必须显式传入该项目的真实 `project_id`，不会被底层强行归到 Ailu。
 - Claude Code 可在“本机配置 / CC Switch · 跟随全局 / 自定义供应商”之间切换。CC Switch 模式每次发送前都重新检查本地代理及全局 Claude 模型路由，不读取当前 Vault 的 `.claude/settings*.json`，不复制 API Key，也不修改 CC Switch 的全局选择。
 - Codex 模型和推理强度从本机 App Server 动态读取；支持模型实际提供的 `low`、`medium`、`high`、`xhigh`、`max`、`ultra` 六档。
 - 本地对话和内联编辑直接调用用户已安装的 Agent CLI。Claude Code 与 Codex 的“完全访问”默认关闭；只有用户在对应设置中明确开启后，普通对话才会请求高权限运行。Plan 模式始终保持只规划。
@@ -31,17 +118,19 @@ Ailu 是一款桌面端 Obsidian 插件，把本地 Agent 对话、内容预览�
 
 ## 运行要求
 
-- 桌面端 Obsidian 1.11.4 或更高版本。
+- 桌面端 Obsidian 1.11.4 或更高版本。macOS/POSIX 支持完整写入；Windows 0.2.0 仅支持 fail-closed 只读查看。
+- 从源码构建需要 Node.js 22.13 或更高版本；核心写锁和部署要求可执行的 `/usr/bin/python3`。
 - 至少独立安装一个受支持的 Agent CLI：[Claude Code](https://code.claude.com/) 或 [Codex](https://github.com/openai/codex)。
 - 使用飞书同步时，需另行安装并配置 [lark-cli](https://github.com/larksuite/cli)；这只是可执行文件名，Ailu 强制使用中国版飞书 `brand=feishu`，不会连接国际版 Lark。插件只发现现有 CLI，不代为安装或升级。
 - 使用 X 文章草稿时，需从 [`mcncarl/yichen-skills`](https://github.com/mcncarl/yichen-skills) 安装与当前 Ailu 版本兼容的 `x-article-draft-uploader` Skill，并提供可运行的 Python 3 与 Playwright 环境；插件只发现和调用现有 Skill，不复制、安装或升级它。该 Skill 使用其仓库现有的个人学习与非商业协议，不随 Ailu 的 AGPL 许可证重新授权。
-插件会从用户配置的路径、`~/.ailu/runtimes/`、系统 `PATH` 与支持的桌面客户端中发现现有可执行文件，不会自动复制、安装或升级 CLI 及其依赖。托管 runtime 必须是非符号链接的真实可执行文件。
+
+插件会从用户配置的路径、`~/.ailu/runtimes/`、系统 `PATH` 与支持的桌面客户端中发现现有可执行文件，不会自动复制、安装或升级 CLI 及其依赖。托管 runtime 必须是非符号链接的真实可执行文件。Ailu 只确认可执行文件和可选版本文本，不能预先保证旧版 CLI 的协议兼容；首次使用前应在终端升级、登录并执行一次版本检查。
 
 ## 数据与网络边界
 
-本地对话和固定模板预览不要求云端账号。
+Ailu 自身和固定模板预览不要求 Ailu 云端账号；Claude Code、Codex 及其模型供应商通常仍需要登录、API Key 或网络连接。
 
-- 创作记忆通过本机 `memoryctl --actor ailu`、`app_id=ailu`、单一实际 `project_id`（用户记忆可用 `global`）、`agent_scope=shared`、`status=active` 限定读取，不扫描完整记忆库，不把对话自动写入长期记忆。默认项目文件是 `项目/Ailu.md`，对应 `project_id=ailu`；每条业务响应要求 `schema_version: 2`。插件启动、设置变更、transition marker 变化或 5 秒 TTL 到期时调用 `memoryctl --actor ailu version --json` 握手，严格要求 `ready=true`、`runtime_api_version=2`、`writer_protocol_version=2`、actor 列表含 `ailu`，并验证 manifest 与全 runtime bundle 的非空 SHA-256 完整性。缓存身份同时绑定 executable realpath、manifest realpath/mtime、transition marker 哈希及 runtime/manifest 完整性哈希。任一检查或业务子命令失败都会禁用正式记忆读写、清空读取缓存并显示诊断，不绕过 Runtime v2，也不复用跨 transition 的缓存结果。
+- 创作记忆通过本机 `memoryctl --actor ailu`、`app_id=ailu`、单一实际 `project_id`（用户记忆可用 `global`）、`agent_scope=shared`、`status=active` 限定读取，不扫描完整记忆库，不把对话自动写入长期记忆。默认项目文件是 `项目/Ailu.md`，对应 `project_id=ailu`；每条业务响应要求 `schema_version: 2`。插件启动、设置变更、transition marker 变化或 5 秒 TTL 到期时调用 `memoryctl --actor ailu version --json` 握手，严格要求 `ready=true`、`runtime_api_version=2`、`writer_protocol_version=2`、actor 列表含 `ailu`，并验证 manifest 与全 runtime bundle 的非空 SHA-256 完整性。缓存身份同时绑定 executable realpath、manifest realpath/mtime、transition marker 哈希及 runtime/manifest 完整性哈希。任一检查或业务子命令失败都会禁用正式记忆读写、清空读取缓存并记录本地诊断，同时隐藏不可用的记忆入口；它不会阻断普通对话，也不会绕过 Runtime v2 或复用跨 transition 的缓存结果。
 - Skill 发现只读取本机各 Skill 入口文件的 frontmatter，并由用户从候选列表中挑选；只有用户在对话框明确选中某个 Skill 后，才要求当前 Agent 读取该 Skill 的完整入口与相对引用。依赖未安装插件或当前 Agent 不具备的工具时，由 Agent 明确提示能力限制。用户在当前请求中选择发布或上传类 Skill 时，不再仅因该动作重复确认；目标或内容不明确时仍需澄清。
 - 对话、飞书和 X 的本地预览不会让 MarkdownRenderer 直接读取远程 URL、任意本地路径或未核验的 Vault 资源；已冻结并校验哈希与文件头的图片会转成当前预览专用的 `blob:` URL，其余媒体显示为本地占位符。公众号快照是唯一会主动下载笔记远程图片的预览路径：只允许 HTTPS 443，逐跳重验公开 DNS 地址、响应类型和大小，并把冻结字节交给预览与完整性检查。
 - 只有用户点击“上传到草稿箱”、通过最终确认后，封面、正文图片和文章 HTML 才会发往用户配置的中转地址。
@@ -58,8 +147,8 @@ Ailu 的 Vault 命名空间是 `.ailu/`，全局目录是 `~/.ailu/`。对话写
 
 当前 Vault 内：
 
-- `.ailu/conversations.json`：本地对话快照。
 - `.ailu/chat-store.json` 与 `.ailu/chat-v2-*/`：当前 authoritative V2 对话图。
+- `.ailu/conversations.json`：旧版迁移输入；新安装不一定生成，不能作为当前对话是否保存成功的判断依据。
 - `.ailu/commands.json`、`.ailu/mention-cache.json`、`.ailu/generated-images/`：命令、引用缓存和已导入图片。
 
 用户主目录内：
@@ -77,6 +166,8 @@ Provider API Key 与公众号中转 Token 保存在 Obsidian SecretStorage，不
 
 `wechat-relay` 提供两条正式路线：
 
+当前 `wechat-relay` 也是独立的私有仓库，需要仓库所有者单独授权；仅有 Ailu 仓库权限时，该链接可能返回 404。未取得 relay 访问权和部署说明前，公众号上传不可用，但不影响对话、本地预览、飞书或 X 的独立功能。
+
 1. 固定 IPv4 VPS + 自有域名 + HTTPS。适合长期使用，Ailu 填写 `https://relay.example.com`。
 2. 固定 IPv4 VPS + Tailscale Serve 或 SSH 本地转发。无需域名；Tailscale 使用 tailnet 内 HTTPS 地址，SSH 路线让 Ailu 连接 `http://127.0.0.1:端口`。这条路线仍然需要服务器，只是省去公网域名和证书入口。
 
@@ -87,15 +178,16 @@ Provider API Key 与公众号中转 Token 保存在 Obsidian SecretStorage，不
 部署器一次只处理一个 Vault；先完成并验收该 Vault，再处理下一个。当前 CLI 只支持使用标准 `.obsidian` 配置目录的 Vault；自定义 Obsidian 配置目录会 fail-closed，不能猜测路径。`plan` 只读核对构建证明、四个发行资产、当前启用列表、Ailu 目标目录和回滚基线：
 
 ```bash
-npm run build
-npm run verify:release
-npm run deploy:plan -- --vault /绝对路径/某个Vault
+npm ci
+npm run audit:dependencies
+npm run check
+npm run deploy:plan -- --vault "/绝对路径/某个 Vault"
 ```
 
 确认 plan 后执行：
 
 ```bash
-npm run deploy:apply -- --vault /绝对路径/某个Vault
+npm run deploy:apply -- --vault "/绝对路径/某个 Vault"
 ```
 
 `apply` 仅支持已验证的 macOS/POSIX gateway，要求所有 Obsidian 进程退出，并独占 Ailu 的 Vault 锁与全局 Provider 锁。构建器先后两次实哈希完整源码、依赖锁和 Node/esbuild/TypeScript 工具链，并把证明写入 `build-attestation.json`；部署器再对实际捕获的证明和产物交叉复核。它在 `.obsidian/ailu-deployment-backups/` 下用 `O_EXCL` 创建不覆盖的私有备份，备份当前 `community-plugins.json` 和已有 Ailu 发行目录，再复制并实哈希验证 `main.js`、`manifest.json`、`styles.css` 与构建证明。最后通过物理锁 helper 的原子 exchange CAS 在 `community-plugins.json` 中启用 `ailu`，保留列表中的其他插件 ID。启用列表是唯一权威提交指针；失败 sidecar、receipt 与 outcome 保留为 `0600` 证据，不自动删除。
@@ -103,15 +195,15 @@ npm run deploy:apply -- --vault /绝对路径/某个Vault
 回滚先读 plan，再 apply receipt：
 
 ```bash
-npm run deploy:rollback-plan -- --receipt /绝对路径/deploy-receipt.json
-npm run deploy:rollback-apply -- --receipt /绝对路径/deploy-receipt.json
+npm run deploy:rollback-plan -- --receipt "/绝对路径/deploy-receipt.json"
+npm run deploy:rollback-apply -- --receipt "/绝对路径/deploy-receipt.json"
 ```
 
 如果进程恰好在启用指针已成功、outcome 证据尚未落盘的窗口崩溃，普通 plan 会 fail-closed。先在 Obsidian 完全退出时用同一 receipt 做只读恢复计划，再在全部 writer lock 下核对精确启用列表和四个产物哈希并补齐终态证据：
 
 ```bash
-npm run deploy:recover-plan -- --receipt /绝对路径/deploy-receipt.json
-npm run deploy:recover-apply -- --receipt /绝对路径/deploy-receipt.json
+npm run deploy:recover-plan -- --receipt "/绝对路径/deploy-receipt.json"
+npm run deploy:recover-apply -- --receipt "/绝对路径/deploy-receipt.json"
 ```
 
 回滚不会删除 `plugins/ailu/` 或 `.ailu/`。只有 Ailu Vault、Home、Provider、插件设置与部署基线完全未变化时，才会恢复部署前的启用列表；只要部署后产生新数据或设置变化，回滚就会 fail-closed，需先核对并执行 forward repair。
@@ -120,16 +212,14 @@ npm run deploy:recover-apply -- --receipt /绝对路径/deploy-receipt.json
 
 ```bash
 npm ci
-npm test
-npm run lint
-npm run build
-npm run verify:release
+npm run audit:dependencies
+npm run check
 ```
 
 Obsidian 插件资产为 `main.js`、`manifest.json` 和 `styles.css`，并附 `build-attestation.json`。每个 GitHub Release 还同时提供根 `LICENSE`、`THIRD_PARTY_NOTICES.md` 与 `LICENSES/*.txt`；完整法律文本也会作为保留注释嵌入 `main.js`，因此通过 Obsidian 安装插件时不会丢失许可证与第三方声明。
 
-提交 issue 前请先使用设置页的“复制脱敏诊断”。不要上传原始 `~/.ailu/logs/`、X 诊断目录、最终截图、Cookie 文件、草稿 URL、Vault 路径或任何 SecretStorage 内容。安全问题请按 [SECURITY.md](SECURITY.md) 私下报告；数据流与默认边界见 [PRIVACY.md](PRIVACY.md) 和 [THREAT_MODEL.md](THREAT_MODEL.md)。
+提交普通问题前请先使用设置页的“复制脱敏诊断”。不要上传原始 `~/.ailu/logs/`、X 诊断目录、最终截图、Cookie 文件、草稿 URL、Vault 路径或任何 SecretStorage 内容。安全问题不要提交 issue，请按 [SECURITY.md](SECURITY.md) 私下报告；数据流与默认边界见 [PRIVACY.md](PRIVACY.md) 和 [THREAT_MODEL.md](THREAT_MODEL.md)。
 
 ## 许可证
 
-Ailu 使用 [GNU AGPL-3.0-or-later](LICENSE)。第三方组件的版权和许可证声明见 [Third-Party Notices](THIRD_PARTY_NOTICES.md)，相关许可证文本位于 [`LICENSES/`](LICENSES/) 目录。
+Ailu 使用 [GNU AGPL-3.0-or-later](LICENSE)。Copyright (C) 2026 Ailu contributors and original WeSight contributors。第三方组件的版权和许可证声明见 [Third-Party Notices](THIRD_PARTY_NOTICES.md)，相关许可证文本位于 [`LICENSES/`](LICENSES/) 目录。

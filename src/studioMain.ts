@@ -477,6 +477,8 @@ export default class AiluPlugin extends Plugin {
       chatContextService: this.chatContextService,
       memoryReadService: this.memoryReadService,
       memoryWriteService: this.memoryWriteService,
+      isMemoryRuntimeReady: () => this.memoryRuntimeDiagnostic === '',
+      setMemoryRuntimeDiagnostic: diagnostic => this.setMemoryRuntimeDiagnostic(diagnostic),
       chatUiState: this.chatUiState,
       chatUiStatePersistence: this.chatUiStatePersistence,
       getChatUiStatePersistenceWarning: () => this.chatUiStatePersistenceWarning,
@@ -1001,15 +1003,19 @@ export default class AiluPlugin extends Plugin {
     if (invalidate) invalidateAiluMemoryRuntimeHandshakeCache();
     try {
       await this.memoryRuntimeGate.assertReady();
-      this.memoryRuntimeDiagnostic = '';
+      this.setMemoryRuntimeDiagnostic(null);
     } catch (error) {
       const diagnostic = errorMessage(error);
-      console.error('Ailu Agent Memory runtime v2 handshake failed.', error);
-      if (diagnostic !== this.memoryRuntimeDiagnostic) {
-        this.memoryRuntimeDiagnostic = diagnostic;
-        new Notice(`Agent Memory 已禁用：${diagnostic}`);
-      }
+      this.setMemoryRuntimeDiagnostic(diagnostic, error);
     }
+  }
+
+  private setMemoryRuntimeDiagnostic(diagnostic: string | null, error?: unknown): void {
+    const next = diagnostic?.trim() ?? '';
+    if (next && next !== this.memoryRuntimeDiagnostic) {
+      console.warn('Ailu optional Agent Memory runtime v2 is unavailable.', error ?? next);
+    }
+    this.memoryRuntimeDiagnostic = next;
   }
 
   private async refreshPublishingViews(): Promise<void> {

@@ -20,6 +20,15 @@ export interface ChatMessageRenderFingerprint {
   memoryActionAvailable: boolean;
 }
 
+/** A missing/failed optional memory runtime changes UI capability, not chat availability. */
+export function resolveMemoryRuntimeDiagnostic(
+  warnings: readonly { code: string; reason?: string }[],
+): string | null {
+  const runtimeWarning = warnings.find(warning => warning.code.startsWith('RUNTIME_'));
+  if (!runtimeWarning) return null;
+  return runtimeWarning.reason?.trim() || runtimeWarning.code;
+}
+
 export type ChatMessageRenderUpdate = 'reuse' | 'update-plain' | 'replace';
 
 export type PlainTextMutation =

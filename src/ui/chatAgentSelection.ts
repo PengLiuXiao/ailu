@@ -1,4 +1,5 @@
 import type { AgentId, RuntimeConfigSource, StoredConversation, AiluSettings } from '../types';
+import { SELECTABLE_AGENT_IDS } from '../agents';
 import { projectCompletedConversation } from '../chat/contextCompression';
 import type { VersionedStoredConversation } from '../storage/vaultStore';
 
@@ -6,6 +7,19 @@ export interface ChatAgentSelectionResult {
   agentId: AgentId;
   agentChanged: boolean;
   defaultChanged: boolean;
+}
+
+/**
+ * Keep an explicit working default, but recover a fresh install when only the
+ * other supported Agent is available. If neither runtime exists the preferred
+ * Agent is retained so the setup modal can explain what is missing.
+ */
+export function resolveAvailableDefaultAgent(
+  preferredAgentId: AgentId,
+  availability: Readonly<Record<AgentId, boolean>>,
+): AgentId {
+  if (availability[preferredAgentId]) return preferredAgentId;
+  return SELECTABLE_AGENT_IDS.find(agentId => availability[agentId]) ?? preferredAgentId;
 }
 
 export interface ClaudeSessionConfigKeyInput {

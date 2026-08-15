@@ -6,6 +6,7 @@ import {
   buildClaudeSessionConfigKey,
   buildCodexSessionConfigKey,
   conversationHandoffHint,
+  resolveAvailableDefaultAgent,
   shouldAttemptSessionResume,
   shouldResumeClaudeSession,
   shouldResumeCodexSession,
@@ -60,6 +61,19 @@ function conversationWithTurn(
 }
 
 describe('chat Agent selection', () => {
+  it('recovers a fresh install to the only available Agent', () => {
+    const settings = { defaultAgentId: 'claude' as const };
+    expect(resolveAvailableDefaultAgent(settings.defaultAgentId, { claude: false, codex: true }))
+      .toBe('codex');
+    expect(settings.defaultAgentId).toBe('claude');
+    expect(resolveAvailableDefaultAgent('codex', { claude: true, codex: false })).toBe('claude');
+  });
+
+  it('keeps the preferred Agent when it is available or no runtime exists', () => {
+    expect(resolveAvailableDefaultAgent('codex', { claude: true, codex: true })).toBe('codex');
+    expect(resolveAvailableDefaultAgent('claude', { claude: false, codex: false })).toBe('claude');
+  });
+
   it('only exposes Claude and Codex for new conversations', () => {
     expect(SELECTABLE_AGENT_IDS).toEqual(['claude', 'codex']);
     expect(normalizeSelectableAgentId('other-agent')).toBe('claude');

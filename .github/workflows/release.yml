@@ -79,6 +79,9 @@ jobs:
           name: ailu-release-assets
 
       - name: Generate artifact attestation
+        # GitHub-hosted attestations for private repositories require Enterprise Cloud.
+        # Keep private releases usable while retaining provenance when this repository is public.
+        if: ${{ github.event.repository.visibility == 'public' }}
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
