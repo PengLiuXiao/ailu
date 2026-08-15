@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 import {
   DraftCreatedVerificationError,
   LocalRelayTransport,
@@ -13,6 +16,14 @@ import type {
 import { onePixelPng } from './fixtures/imageBytes';
 
 const RELAY_TOKEN = 'r'.repeat(48);
+const settingsTabSource = fs.readFileSync(
+  fileURLToPath(new URL('../src/ui/settingsTab.ts', import.meta.url)),
+  'utf8',
+);
+const readme = fs.readFileSync(
+  fileURLToPath(new URL('../README.md', import.meta.url)),
+  'utf8',
+);
 
 function image(id: string, reference: string, fileName = `${id}.png`): PublishingImageInput {
   return {
@@ -46,6 +57,19 @@ async function preparedWithOneImage(): Promise<PreparedArticle> {
 }
 
 describe('LocalRelayTransport', () => {
+  test('documents only the two supported HTTPS relay routes and their root URL contract', () => {
+    expect(settingsTabSource).toContain(
+      'Tailscale Serve 填 HTTPS MagicDNS 地址；域名路线填 Caddy HTTPS 地址。只填服务根地址，不加 /v1。',
+    );
+    expect(settingsTabSource).not.toContain('Tailscale/SSH');
+    expect(readme).toContain('固定 IPv4 VPS + 自有域名 + Caddy HTTPS');
+    expect(readme).toContain('固定 IPv4 VPS + Tailscale Serve');
+    expect(readme).toContain('HTTPS MagicDNS 服务根地址');
+    expect(readme).toContain('不在末尾加 `/v1`');
+    expect(readme).not.toContain('Tailscale Serve 或 SSH');
+    expect(readme).not.toContain('SSH 路线让 Ailu 连接');
+  });
+
   test('uploads locally-preflighted assets, creates a draft, and always verifies the readback', async () => {
     const article = await preparedWithOneImage();
     const requests: PublishingHttpRequest[] = [];

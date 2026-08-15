@@ -435,7 +435,7 @@ export class AiluSettingTab extends PluginSettingTab {
 
     new Setting(section)
       .setName('中转地址')
-      .setDesc('域名路线填 https://relay.example.com；Tailscale/SSH 本地转发路线填 http://127.0.0.1:端口。')
+      .setDesc('Tailscale Serve 填 HTTPS MagicDNS 地址；域名路线填 Caddy HTTPS 地址。只填服务根地址，不加 /v1。')
       .addText(text => text
         .setPlaceholder('https://relay.example.com')
         .setValue(publishing.relayUrl)

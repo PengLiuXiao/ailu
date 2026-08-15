@@ -2954,6 +2954,90 @@ describe('X Article local uploader', () => {
     expect(state.privateWrites.some(([filePath]) => filePath === '/tmp/cookies.json')).toBe(false);
   });
 
+  test.each([
+    {
+      name: 'expired required Cookies',
+      previous: JSON.stringify([
+        { name: 'auth_token', value: 'expired-one', domain: '.x.com', expires: 1 },
+        { name: 'ct0', value: 'expired-two', domain: 'x.com', expires: 1 },
+      ]),
+    },
+    {
+      name: 'a supported wrapper missing ct0',
+      previous: JSON.stringify({
+        cookies: [
+          { name: 'auth_token', value: 'old-one', domain: '.x.com' },
+          { name: 'lang', value: 'zh', domain: 'x.com' },
+        ],
+      }),
+    },
+  ])('Chrome export atomically replaces $name', async ({ previous }) => {
+    const state = harness((child, args) => {
+      state.files.set(option(args, '--output'), {
+        text: JSON.stringify([
+          { name: 'auth_token', value: 'new-one', domain: '.x.com' },
+          { name: 'ct0', value: 'new-two', domain: 'x.com' },
+        ]),
+        mtimeMs: 10_100,
+      });
+      child.finish(0, 'exported=2\n');
+    });
+    state.files.get('/tmp/cookies.json')!.text = previous;
+
+    const status = await uploader(state.dependencies).exportCookies();
+
+    expect(status).toMatchObject({ cookieCount: 2, requiredNamesPresent: true });
+    expect(state.calls).toHaveLength(1);
+    expect(state.privateWrites.filter(([filePath]) => filePath === '/tmp/cookies.json')).toHaveLength(1);
+    const persisted = JSON.parse(state.files.get('/tmp/cookies.json')?.text ?? 'null') as Array<Record<string, unknown>>;
+    expect(persisted.map(cookie => cookie.name)).toEqual(['auth_token', 'ct0']);
+    expect(JSON.stringify(persisted)).not.toContain('old-one');
+    expect(JSON.stringify(persisted)).not.toContain('expired-one');
+  });
+
+  test('auto-export refreshes an expired canonical Cookie file before upload', async () => {
+    const state = harness((child, args, call) => {
+      if (call === 1) {
+        expect(args).toContain(runtime.cookieExportScript);
+        state.files.set(option(args, '--output'), {
+          text: JSON.stringify([
+            { name: 'auth_token', value: 'new-one', domain: '.x.com' },
+            { name: 'ct0', value: 'new-two', domain: 'x.com' },
+          ]),
+          mtimeMs: 10_100,
+        });
+        child.finish(0, 'exported=2\n');
+        return;
+      }
+      child.finish(1, '', 'simulated upload stop');
+    });
+    state.files.get('/tmp/cookies.json')!.text = JSON.stringify([
+      { name: 'auth_token', value: 'expired-one', domain: '.x.com', expires: 1 },
+      { name: 'ct0', value: 'expired-two', domain: 'x.com', expires: 1 },
+    ]);
+
+    const outcome = await autoExportUploader(state.dependencies)
+      .upload(prepared(), { preflight: preflight() });
+
+    expect(outcome.status).toBe('failed');
+    expect(state.calls).toHaveLength(2);
+    expect(state.calls[0].args).toContain(runtime.cookieExportScript);
+    expect(state.privateWrites.filter(([filePath]) => filePath === '/tmp/cookies.json')).toHaveLength(1);
+  });
+
+  test('refuses to replace an unrelated array stored at the canonical Cookie path', async () => {
+    const state = harness(child => child.finish(0, 'must not run'));
+    const unrelated = JSON.stringify([
+      { project: 'keep-me', nested: { purpose: 'not-cookies' } },
+    ]);
+    state.files.get('/tmp/cookies.json')!.text = unrelated;
+
+    await expect(uploader(state.dependencies).exportCookies()).rejects.toThrow('拒绝覆盖');
+    expect(state.files.get('/tmp/cookies.json')?.text).toBe(unrelated);
+    expect(state.calls).toHaveLength(0);
+    expect(state.privateWrites).toHaveLength(0);
+  });
+
   test('auto-export refreshes an empty Cookie file but never overwrites arbitrary JSON', async () => {
     const refresh = harness((child, args, call) => {
       if (call === 1) {

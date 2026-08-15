@@ -294,6 +294,37 @@ function sanitizeProcessDiagnostic(value: string): string {
     );
 }
 
+function assertSupportedXCookieJsonForReplacement(text: string): void {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    throw new Error('X Cookie content was not valid JSON.');
+  }
+  let cookies: unknown[];
+  if (Array.isArray(parsed)) {
+    cookies = parsed;
+  } else if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const record = parsed as Record<string, unknown>;
+    if (Object.keys(record).length !== 1 || !Array.isArray(record.cookies)) {
+      throw new Error('X Cookie content was not a supported Cookie container.');
+    }
+    cookies = record.cookies;
+  } else {
+    throw new Error('X Cookie content was not a supported Cookie container.');
+  }
+
+  // The canonical file is owned by this integration once it has a supported
+  // Cookie container whose records all satisfy the X-domain schema. Probe that
+  // schema without applying freshness or required-name checks: an expired file,
+  // or one missing auth_token/ct0, must remain safely refreshable from Chrome.
+  normalizeXCookieJsonText(JSON.stringify([
+    ...cookies,
+    { name: 'auth_token', value: 'replacement-validation', domain: 'x.com', path: '/' },
+    { name: 'ct0', value: 'replacement-validation', domain: 'x.com', path: '/' },
+  ]), { nowEpochSeconds: 0 });
+}
+
 function processDiagnosticText(result: ProcessResult): string {
   return `${JSON.stringify({
     exitCode: result.code,
@@ -2679,7 +2710,7 @@ export class XArticleLocalUploader {
     const text = await this.dependencies.readText(this.cookiesPath).catch(() => null);
     if (text === null || !text.trim()) return;
     try {
-      normalizeXCookieJsonText(text);
+      assertSupportedXCookieJsonForReplacement(text);
     } catch {
       throw new Error('X Cookie 正式文件已有非规范内容，拒绝覆盖。');
     }

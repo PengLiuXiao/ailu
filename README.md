@@ -69,6 +69,17 @@ npm run deploy:apply -- --vault "/Users/你的用户名/Documents/My Vault"
 
 兼容的 Agent Memory Runtime v2 是可选的本机增强能力，不随仓库安装。没有 `~/.config/agent-memory/scripts/memoryctl` 时，对话继续正常工作，记忆检索和“沉淀到记忆”入口会保持关闭；不要把它的缺失当成 Agent CLI 故障。
 
+## 完整功能配置
+
+上面的首次验收只证明 Ailu 核心、Agent 对话和本地预览可用。若要交付给其他人完整使用，还必须按 [《Ailu 完整安装与集成配置》](docs/COMPLETE_SETUP.md)分别完成并验收：
+
+1. Ubuntu 服务器、公众号固定出口 IPv4 白名单、`wechat-relay`、Tailscale Serve 或 Caddy HTTPS，以及 Ailu 中转地址和 Token；
+2. 与当前 Ailu 匹配的 `x-article-draft-uploader`、独立 Python/Playwright 环境、Chrome 登录态与 X Cookie 导入；
+3. `lark-cli` 安装，以及在 Ailu 草稿区完成的中国版飞书配置、扫码授权和目标目录选择；
+4. 可选的 Agent Memory Runtime v2 安装与 `memoryctl --actor ailu version --json` 握手。
+
+四条集成互不替代，也不应在第一次启动时一起排错。完整指南为每一步给出了成功信号、凭据边界和失败后的处理顺序。
+
 ### 更新
 
 ```bash
@@ -121,8 +132,8 @@ npm run deploy:plan -- --vault "/Users/你的用户名/Documents/My Vault"
 - 桌面端 Obsidian 1.11.4 或更高版本。macOS/POSIX 支持完整写入；Windows 0.2.0 仅支持 fail-closed 只读查看。
 - 从源码构建需要 Node.js 22.13 或更高版本；核心写锁和部署要求可执行的 `/usr/bin/python3`。
 - 至少独立安装一个受支持的 Agent CLI：[Claude Code](https://code.claude.com/) 或 [Codex](https://github.com/openai/codex)。
-- 使用飞书同步时，需另行安装并配置 [lark-cli](https://github.com/larksuite/cli)；这只是可执行文件名，Ailu 强制使用中国版飞书 `brand=feishu`，不会连接国际版 Lark。插件只发现现有 CLI，不代为安装或升级。
-- 使用 X 文章草稿时，需从 [`mcncarl/yichen-skills`](https://github.com/mcncarl/yichen-skills) 安装与当前 Ailu 版本兼容的 `x-article-draft-uploader` Skill，并提供可运行的 Python 3 与 Playwright 环境；插件只发现和调用现有 Skill，不复制、安装或升级它。该 Skill 使用其仓库现有的个人学习与非商业协议，不随 Ailu 的 AGPL 许可证重新授权。
+- 使用飞书同步时，需另行安装 [lark-cli](https://github.com/larksuite/cli)；Ailu 会在草稿区完成中国版飞书 `brand=feishu` 的配置与扫码授权，不会连接国际版 Lark。插件只发现现有 CLI，不代为安装或升级。
+- 使用 X 文章草稿时，需由仓库维护者提供与当前 Ailu 版本匹配、经过复核的 `x-article-draft-uploader` Skill，并提供可运行的 Python 3 与 Playwright 环境；不要默认把 [`mcncarl/yichen-skills`](https://github.com/mcncarl/yichen-skills) 的任意 `main` 快照当成兼容发行版。插件只发现和调用现有 Skill，不复制、安装或升级它。该 Skill 使用其仓库现有的个人学习与非商业协议，不随 Ailu 的 AGPL 许可证重新授权。
 
 插件会从用户配置的路径、`~/.ailu/runtimes/`、系统 `PATH` 与支持的桌面客户端中发现现有可执行文件，不会自动复制、安装或升级 CLI 及其依赖。托管 runtime 必须是非符号链接的真实可执行文件。Ailu 只确认可执行文件和可选版本文本，不能预先保证旧版 CLI 的协议兼容；首次使用前应在终端升级、登录并执行一次版本检查。
 
@@ -168,10 +179,12 @@ Provider API Key 与公众号中转 Token 保存在 Obsidian SecretStorage，不
 
 当前 `wechat-relay` 也是独立的私有仓库，需要仓库所有者单独授权；仅有 Ailu 仓库权限时，该链接可能返回 404。未取得 relay 访问权和部署说明前，公众号上传不可用，但不影响对话、本地预览、飞书或 X 的独立功能。
 
-1. 固定 IPv4 VPS + 自有域名 + HTTPS。适合长期使用，Ailu 填写 `https://relay.example.com`。
-2. 固定 IPv4 VPS + Tailscale Serve 或 SSH 本地转发。无需域名；Tailscale 使用 tailnet 内 HTTPS 地址，SSH 路线让 Ailu 连接 `http://127.0.0.1:端口`。这条路线仍然需要服务器，只是省去公网域名和证书入口。
+1. 固定 IPv4 VPS + 自有域名 + Caddy HTTPS。适合长期使用，Ailu 填写域名对应的 HTTPS 服务根地址，例如 `https://relay.example.com`。
+2. 固定 IPv4 VPS + Tailscale Serve。无需自有域名；Ailu 填写 tailnet 内的 HTTPS MagicDNS 服务根地址，例如 `https://relay-host.example-tailnet.ts.net`。不要启用 Tailscale Funnel，也不要把 Tailscale Serve 地址填成 `localhost`。
 
-不要把 relay 的公网 HTTP、AppSecret、RELAY_TOKEN、Cloudflare/Tailscale 凭据、SSH 私钥、SQLite/WAL、日志、草稿 URL 或 `media_id` 放进仓库。完整部署步骤与威胁边界见 `wechat-relay` 自身文档。
+两条路线在 Ailu 中都只填服务根地址，不在末尾加 `/v1`；Ailu 会自行拼接各个 `/wechat/...` 请求路径。
+
+不要把 relay 的公网 HTTP、AppSecret、RELAY_TOKEN、Cloudflare/Tailscale 凭据、SQLite/WAL、日志、草稿 URL 或 `media_id` 放进仓库。完整部署步骤与威胁边界见 `wechat-relay` 自身文档。
 
 ### 离线部署、验收与回滚
 
