@@ -16,4 +16,10 @@ describe('release workflow', () => {
       /- name: Create GitHub release\n\s*env:\n\s*GH_TOKEN: \$\{\{ github\.token \}\}\n\s*run: \|/,
     );
   });
+
+  test('creates the release against the event repository without requiring a checkout', () => {
+    expect(releaseWorkflow).toMatch(
+      /gh release create "\$GITHUB_REF_NAME" \\\n\s*--repo "\$GITHUB_REPOSITORY" \\/,
+    );
+  });
 });
