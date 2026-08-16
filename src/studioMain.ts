@@ -39,6 +39,7 @@ import {
 } from './storage/processWriteLock';
 import { ailuHome, xCookiesPath } from './paths';
 import { durableRuntimeFingerprint } from './storage/runtimeSnapshot';
+import { appendLocalLog } from './storage/localLog';
 import {
   ConversationSessionConflictError,
   VaultStore,
@@ -87,6 +88,7 @@ interface AppWithSettings extends App {
 
 const STUDIO_SHUTDOWN_HANDOFF = Symbol.for(AILU_IDS.shutdownHandoff);
 const RELOAD_LEASE_GRACE_MS = 35_000;
+const RESTART_LEASE_GRACE_MS = 1_500;
 
 export default class AiluPlugin extends Plugin {
   settings!: AiluSettings;
@@ -235,6 +237,9 @@ export default class AiluPlugin extends Plugin {
         [message, detail].filter(Boolean).join('：'),
         '当前 Agent 执行失败，请查看本地诊断日志。',
       ),
+      onPersistenceFailure: ({ stage, failureKind }) => {
+        appendLocalLog('chat_persistence_failure', { stage, failureKind });
+      },
       loadConversation: async conversationId => (
         (await this.vaultStore.loadConversationWindow(conversationId, 100))?.conversation ?? null
       ),
@@ -261,6 +266,8 @@ export default class AiluPlugin extends Plugin {
             fullAccess: input.runtimeRequest.fullAccess === true,
           },
           initialState: input.initialState,
+          contextCheckpointDraft: input.contextCheckpointDraft,
+          expectedRevision: input.expectedRevision,
         });
       },
       persistActivate: async input => {
@@ -703,15 +710,21 @@ export default class AiluPlugin extends Plugin {
   private async acquireChatWriteLeaseWithReloadGrace() {
     let status = await this.vaultStore.acquireWriteLease({ startHeartbeat: false });
     const currentPid = typeof process === 'undefined' ? null : process.pid;
-    if (status.mode !== 'readOnly' || currentPid === null || status.ownerPid !== currentPid) {
+    if (status.mode !== 'readOnly' || currentPid === null) {
       return status;
     }
-    const deadline = Date.now() + RELOAD_LEASE_GRACE_MS;
-    while (status.mode === 'readOnly'
-      && status.ownerPid === currentPid
-      && Date.now() < deadline) {
+    // Same-process hot reload can need the full shutdown barrier. A complete
+    // Obsidian restart has a different PID but may overlap the old flock
+    // helper briefly, so retry it for a short bounded window instead of
+    // remaining read-only until another manual restart.
+    const sameProcessReload = status.ownerPid === currentPid;
+    const deadline = Date.now() + (sameProcessReload
+      ? RELOAD_LEASE_GRACE_MS
+      : RESTART_LEASE_GRACE_MS);
+    while (status.mode === 'readOnly' && Date.now() < deadline) {
       await new Promise<void>(resolve => window.setTimeout(resolve, 100));
       status = await this.vaultStore.acquireWriteLease({ startHeartbeat: false });
+      if (sameProcessReload && status.mode === 'readOnly' && status.ownerPid !== currentPid) break;
     }
     return status;
   }

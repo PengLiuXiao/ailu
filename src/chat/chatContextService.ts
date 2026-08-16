@@ -1,13 +1,9 @@
 import type {
   AgentId,
-  ConversationContextCheckpoint,
   ConversationContextCheckpointDraft,
   ConversationContextSummary,
 } from '../types';
-import type {
-  ContextCheckpointMutationResult,
-  VersionedStoredConversation,
-} from '../storage/vaultStore';
+import type { VersionedStoredConversation } from '../storage/vaultStore';
 import type { ConversationWindow } from '../storage/conversationRepositoryV2';
 import { createId } from '../utils/id';
 import {
@@ -39,11 +35,14 @@ export type ChatContextPreparationMode =
 
 export interface ChatContextPreparation {
   effectivePrompt: string;
+  /** Canonical revision used to prepare this prompt; beginTurn must match it. */
+  sourceRevision?: number;
   sessionId?: string;
   freshSessionPrompt?: string;
   allowFreshSessionFallback: boolean;
   contextCheckpointId?: string;
-  committedCheckpoint?: ConversationContextCheckpoint;
+  /** Committed atomically with beginTurn; preparation itself is read-only. */
+  contextCheckpointDraft?: ConversationContextCheckpointDraft;
   mode: ChatContextPreparationMode;
   notice: string;
 }
@@ -60,11 +59,6 @@ export interface PrepareChatContextInput {
 export interface ChatContextStore {
   loadConversationWindow(conversationId: string, limit?: number): Promise<ConversationWindow | null>;
   getConversation(conversationId: string): Promise<VersionedStoredConversation | null>;
-  commitContextCheckpoint(input: {
-    conversationId: string;
-    checkpoint: ConversationContextCheckpointDraft;
-    expectedRevision?: number;
-  }): Promise<ContextCheckpointMutationResult>;
 }
 
 export interface ChatContextServiceOptions {
@@ -130,6 +124,7 @@ export class ChatContextService {
       this.assertCurrentPromptFits(currentPrompt, input.modelContextTokens);
       return {
         effectivePrompt: currentPrompt,
+        sourceRevision: window.conversation.revision,
         allowFreshSessionFallback: false,
         mode: 'new-conversation',
         notice: '',
@@ -213,16 +208,9 @@ export class ChatContextService {
           ? { previousCheckpointId: source.conversation.contextCheckpoint.id }
           : {}),
       };
-      // Conflicts deliberately propagate. Starting a runtime from a checkpoint
-      // that was not atomically committed would split canonical conversation truth.
-      const committed = await this.options.store.commitContextCheckpoint({
-        conversationId,
-        checkpoint: draft,
-        expectedRevision: source.conversation.revision,
-      });
       const freshSessionPrompt = appendCurrentPrompt(
         buildConversationHandoffPrompt({
-          summary: committed.checkpoint.summary,
+          summary: draft.summary,
           rawTail: compression.selection.rawTail,
           targetAgentId: input.targetAgentId,
         }),
@@ -230,10 +218,11 @@ export class ChatContextService {
       );
       return {
         effectivePrompt: freshSessionPrompt,
+        sourceRevision: source.conversation.revision,
         freshSessionPrompt,
         allowFreshSessionFallback: false,
-        contextCheckpointId: committed.checkpoint.id,
-        committedCheckpoint: committed.checkpoint,
+        contextCheckpointId: draft.id,
+        contextCheckpointDraft: draft,
         mode: 'checkpoint-handoff',
         notice: '已压缩较早对话，完整聊天记录仍然保留。',
       };
@@ -262,6 +251,7 @@ export class ChatContextService {
       );
       return {
         effectivePrompt: freshSessionPrompt,
+        sourceRevision: source.conversation.revision,
         freshSessionPrompt,
         allowFreshSessionFallback: false,
         ...(source.conversation.contextCheckpoint
@@ -295,6 +285,7 @@ export class ChatContextService {
       );
       return {
         effectivePrompt: currentPrompt,
+        sourceRevision: source.conversation.revision,
         sessionId: resumeCandidate,
         freshSessionPrompt,
         allowFreshSessionFallback: true,
@@ -309,6 +300,7 @@ export class ChatContextService {
     this.assertCurrentPromptFits(currentPrompt, input.modelContextTokens);
     return {
       effectivePrompt: currentPrompt,
+      sourceRevision: source.conversation.revision,
       sessionId: resumeCandidate,
       allowFreshSessionFallback: false,
       mode: 'native-resume',

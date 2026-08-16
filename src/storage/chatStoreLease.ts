@@ -123,6 +123,10 @@ export class ChatStoreLease {
 
   private async acquirePersistedLease(): Promise<ChatStoreLeaseStatus> {
     const now = this.now();
+    // Once the exclusive OS lock is held, an unexpired JSON heartbeat from a
+    // dead/restarted process is only stale diagnostic state. Treating it as a
+    // second authority strands the new Obsidian process in read-only mode.
+    const processFenceHeld = this.processWriteLock !== null;
     const candidateLeaseId = createId('lease');
     const currentLeaseId = this.leaseId;
     const record = await this.mutatePersistedLease(existing => {
@@ -130,7 +134,10 @@ export class ChatStoreLease {
         && existing.instanceId === this.instanceId
         && existing.leaseId === currentLeaseId
         && existing.expiresAt > now;
-      if (existing.state === 'held' && existing.expiresAt > now && !ownsExisting) {
+      if (existing.state === 'held'
+        && existing.expiresAt > now
+        && !ownsExisting
+        && !processFenceHeld) {
         return serializeLeaseRecord(existing);
       }
       const leaseId = ownsExisting ? existing.leaseId : candidateLeaseId;

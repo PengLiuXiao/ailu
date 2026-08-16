@@ -150,6 +150,8 @@ export interface BeginTurnInput {
   assistantMessage: ChatMessage;
   /** Frozen before persistence; prompts, secrets, and attachment paths are deliberately excluded. */
   runtime: ConversationRuntimeSnapshot;
+  /** Applied in the same revision and journal record as the new turn. */
+  contextCheckpointDraft?: ConversationContextCheckpointDraft;
   expectedRevision?: number;
   /** Active mirrors the legacy immediate-run flow; schedulers can persist queued. */
   initialState?: 'active' | 'queued';
@@ -739,6 +741,9 @@ export class VaultStore {
         file.conversations.unshift(conversation);
       }
       assertExpectedRevision(conversation, input.expectedRevision);
+      const contextCheckpoint = input.contextCheckpointDraft
+        ? materializeAtomicContextCheckpoint(conversation, input.contextCheckpointDraft)
+        : undefined;
       for (const message of [input.userMessage, input.assistantMessage]) {
         if (conversation.messages.some(item => item.id === message.id)) {
           throw new ConversationTurnStateError(`Message id ${message.id} is already in use.`);
@@ -765,6 +770,7 @@ export class VaultStore {
         ...(initialState === 'active' ? { startedAt: now } : {}),
       };
       conversation.turns.push(turn);
+      if (contextCheckpoint) conversation.contextCheckpoint = contextCheckpoint;
       allocateRevision(file, conversation);
       return { changed: true, value: turnResult(true, conversation, turn) };
     });
@@ -1767,6 +1773,100 @@ function validateBeginTurnInput(input: BeginTurnInput): void {
     throw new ConversationTurnStateError('beginTurn message ids must be different.');
   }
   normalizeRuntimeSnapshot(input.runtime, 'turn runtime snapshot');
+  if (input.contextCheckpointDraft !== undefined) {
+    normalizeAtomicContextCheckpointDraft(input.contextCheckpointDraft);
+  }
+}
+
+function normalizeAtomicContextCheckpointDraft(
+  value: unknown,
+): ConversationContextCheckpointDraft {
+  if (!isRecord(value)) throw corrupt('beginTurn contextCheckpointDraft must be an object.');
+  assertExactKeys(value, [
+    'version',
+    'id',
+    'createdAt',
+    'sourceRevision',
+    'throughMessageSequence',
+    'throughMessageId',
+    'projectionVersion',
+    'summary',
+    'createdBy',
+    'previousCheckpointId',
+  ], 'beginTurn contextCheckpointDraft');
+  const draft = { ...normalizeContextCheckpoint({
+    ...value,
+    prefixSha256: '0'.repeat(64),
+  }, 'beginTurn contextCheckpointDraft') };
+  Reflect.deleteProperty(draft, 'prefixSha256');
+  return draft;
+}
+
+function materializeAtomicContextCheckpoint(
+  conversation: VersionedStoredConversation,
+  value: ConversationContextCheckpointDraft,
+): ConversationContextCheckpoint {
+  const draft = normalizeAtomicContextCheckpointDraft(value);
+  if (conversation.turns.some(turn => !isTerminalTurnState(turn.state))) {
+    throw new ConversationTurnStateError(
+      `Conversation ${conversation.id} cannot checkpoint while a turn is unfinished.`,
+    );
+  }
+  if (draft.sourceRevision !== conversation.revision) {
+    throw new ConversationRevisionConflictError(
+      conversation.id,
+      draft.sourceRevision,
+      conversation.revision,
+    );
+  }
+  const checkpoint = materializeAtomicContextCheckpointReplay(conversation, draft);
+  const existing = conversation.contextCheckpoint;
+  if (existing) {
+    if (checkpoint.previousCheckpointId !== existing.id) {
+      throw new ConversationTurnStateError(
+        `Context checkpoint ${checkpoint.id} does not extend ${existing.id}.`,
+      );
+    }
+    if (checkpoint.throughMessageSequence <= existing.throughMessageSequence) {
+      throw new ConversationTurnStateError(
+        'A context checkpoint must advance beyond the previous message boundary.',
+      );
+    }
+  } else if (checkpoint.previousCheckpointId !== undefined) {
+    throw new ConversationTurnStateError(
+      'The first context checkpoint cannot reference a previous checkpoint.',
+    );
+  }
+  return checkpoint;
+}
+
+function materializeAtomicContextCheckpointReplay(
+  conversation: VersionedStoredConversation,
+  value: ConversationContextCheckpointDraft,
+): ConversationContextCheckpoint {
+  const draft = normalizeAtomicContextCheckpointDraft(value);
+  const sequence = draft.throughMessageSequence;
+  if (sequence > conversation.messages.length) {
+    throw new ConversationTurnStateError(
+      `Context checkpoint sequence ${sequence} exceeds ${conversation.messages.length} messages.`,
+    );
+  }
+  const boundary = conversation.messages[sequence - 1];
+  if (boundary?.id !== draft.throughMessageId || boundary.role !== 'assistant') {
+    throw new ConversationTurnStateError('A context checkpoint has an invalid assistant boundary.');
+  }
+  if (conversation.turns.length > 0) {
+    const boundaryTurn = conversation.turns.find(turn => turn.assistantMessageId === boundary.id);
+    if (!boundaryTurn || boundaryTurn.state !== 'completed') {
+      throw new ConversationTurnStateError(
+        'A context checkpoint must end at the assistant message of a completed turn.',
+      );
+    }
+  }
+  return normalizeContextCheckpoint({
+    ...draft,
+    prefixSha256: hashConversationMessagePrefix(conversation.messages, sequence),
+  }, 'beginTurn context checkpoint');
 }
 
 function assertBeginTurnReplay(
@@ -1784,6 +1884,15 @@ function assertBeginTurnReplay(
     || !jsonEqual(user, input.userMessage)
     || !jsonEqual(turn.runtime, normalizeRuntimeSnapshot(input.runtime, 'turn runtime snapshot'))) {
     throw new ConversationTurnStateError(`Turn id ${turn.id} is already in use by different input.`);
+  }
+  if (input.contextCheckpointDraft) {
+    const expected = materializeAtomicContextCheckpointReplay(
+      conversation,
+      input.contextCheckpointDraft,
+    );
+    if (!conversation.contextCheckpoint || !jsonEqual(conversation.contextCheckpoint, expected)) {
+      throw new ConversationTurnStateError(`Turn id ${turn.id} checkpoint is different from its replay.`);
+    }
   }
 }
 

@@ -2895,6 +2895,7 @@ export class AiluChatView extends ItemView {
     if (!this.conversationOperations.tryBeginPreparation(conversation.id)) return;
     this.updateRunControls();
     try {
+    this.deps.chatRunCoordinator.assertContextPreparationAllowed(conversation.id);
     const memoryQuery = buildChatMemoryQuery({
       userInput: rawPrompt || this.selectedSkill?.label || '内容创作',
       conversationTitle: conversation.title,
@@ -3050,6 +3051,7 @@ export class AiluChatView extends ItemView {
         currentPrompt: runtimePrompt,
         resumeCandidate: sessionId,
       });
+    this.deps.chatRunCoordinator.assertContextPreparationAllowed(conversation.id);
     if (this.deps.chatRunCoordinator.isConversationRunning(conversation.id)) {
       throw new Error('准备上下文期间，这段对话启动了另一项任务；本次未发送。');
     }
@@ -3075,9 +3077,6 @@ export class AiluChatView extends ItemView {
       title,
       updatedAt: Date.now(),
       messages: [...conversation.messages, userMessage, assistantMessage],
-      ...(preparedContext.committedCheckpoint
-        ? { contextCheckpoint: preparedContext.committedCheckpoint }
-        : {}),
     };
     try {
       const handle = await this.deps.chatRunCoordinator.submit({
@@ -3085,6 +3084,8 @@ export class AiluChatView extends ItemView {
         conversationSnapshot,
         userMessage,
         assistantMessage,
+        contextCheckpointDraft: preparedContext.contextCheckpointDraft,
+        expectedRevision: preparedContext.sourceRevision,
         sessionConfigKey,
         runtimeRequest: {
           conversationId: conversation.id,

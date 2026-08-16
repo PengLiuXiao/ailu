@@ -1455,6 +1455,76 @@ describe('ConversationRepository v2', () => {
       .toEqual(committed.checkpoint);
   });
 
+  test('commits a cross-Agent checkpoint and beginTurn in one journal revision', async () => {
+    const { adapter, store } = await initialize();
+    const first = beginInput('atomic-context-turn', 'claude-source');
+    first.agentId = 'claude';
+    first.userMessage.agentId = 'claude';
+    first.assistantMessage.agentId = 'claude';
+    await store.beginTurn(first);
+    await store.finalizeTurn({
+      conversationId: first.conversationId,
+      turnId: first.turnId!,
+      assistantPatch: { content: 'Claude completed the durable source turn.' },
+    });
+    const before = await store.getConversation(first.conversationId);
+    if (!before) throw new Error('Expected completed source conversation.');
+    const next = beginInput(first.conversationId, 'codex-target');
+    next.contextCheckpointDraft = contextCheckpointDraft(before, 'atomic-context-checkpoint');
+    next.expectedRevision = before.revision;
+
+    const begun = await store.beginTurn(next);
+    const after = await store.getConversation(first.conversationId);
+
+    expect(begun).toMatchObject({ applied: true, revision: after?.revision });
+    expect(after?.contextCheckpoint).toMatchObject({
+      id: 'atomic-context-checkpoint',
+      sourceRevision: before.revision,
+      throughMessageId: before.messages.at(-1)?.id,
+    });
+    expect(after?.turns.at(-1)).toMatchObject({ id: 'codex-target', agentId: 'codex', state: 'active' });
+    expect(after?.messages).toHaveLength(before.messages.length + 2);
+
+    const atomicJournal = [...adapter.files.values()].find(raw => (
+      raw.includes('atomic-context-checkpoint') && raw.includes('"type":"beginTurn"')
+    ));
+    expect(atomicJournal).toContain('"contextCheckpoint"');
+    expect(atomicJournal).not.toContain('"type":"setContextCheckpoint"');
+
+    await expect(store.beginTurn(next)).resolves.toMatchObject({
+      applied: false,
+      revision: begun.revision,
+    });
+    const restarted = new VaultStore(adapter as unknown as DataAdapter, {
+      instanceId: 'atomic-context-restart',
+    });
+    await expect(restarted.getConversation(first.conversationId)).resolves.toEqual(after);
+  });
+
+  test('rolls back both checkpoint and turn when the planned source revision is stale', async () => {
+    const { store } = await initialize();
+    await store.beginTurn(beginInput('atomic-context-stale', 'source-turn'));
+    await store.finalizeTurn({
+      conversationId: 'atomic-context-stale',
+      turnId: 'source-turn',
+      assistantPatch: { content: 'Source completed.' },
+    });
+    const source = await store.getConversation('atomic-context-stale');
+    if (!source) throw new Error('Expected source conversation.');
+    const staleDraft = contextCheckpointDraft(source, 'stale-atomic-checkpoint');
+    await store.appendMessage(source.id, message('intervening-note', 'assistant', 'Intervening durable write'));
+    const beforeAttempt = await store.getConversation(source.id);
+    const next = beginInput(source.id, 'stale-target-turn');
+    next.contextCheckpointDraft = staleDraft;
+    next.expectedRevision = staleDraft.sourceRevision;
+
+    await expect(store.beginTurn(next)).rejects.toBeInstanceOf(ConversationRevisionConflictError);
+    const afterAttempt = await store.getConversation(source.id);
+    expect(afterAttempt).toEqual(beforeAttempt);
+    expect(afterAttempt?.contextCheckpoint).toBeUndefined();
+    expect(afterAttempt?.turns.some(turn => turn.id === 'stale-target-turn')).toBe(false);
+  });
+
   test('rejects unfinished, stale, forged, and non-assistant context checkpoints', async () => {
     const { store } = await initialize();
     await store.beginTurn(beginInput('context-invalid', 'context-active'));
