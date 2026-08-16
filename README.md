@@ -1,14 +1,27 @@
 # Ailu
 
+[![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg)](LICENSE)
+![Commercial use: permitted under AGPL](https://img.shields.io/badge/commercial_use-permitted_under_AGPL-2ea44f.svg)
+![Commercial support: available](https://img.shields.io/badge/commercial_support-available-7c3aed.svg)
+
 Ailu 是一款桌面端 Obsidian 插件，把本地 Agent 对话、内容预览、公众号草稿上传、飞书文档同步和 X Article 草稿创建收进同一个简约工作台。显示名为 `Ailu`，插件 ID、包名、存储和 Agent Memory 身份统一为 `ailu`。
 
 ## 当前分发状态
 
-Ailu 0.2.0 当前保存在私有 GitHub 仓库，尚未提供可直接安装的 GitHub Release。获授权的协作者需要从源码构建；GitHub 的 “Source code” 压缩包不包含被忽略的 `main.js` 与 `build-attestation.json`，不能直接当作 Obsidian 插件包使用。Ailu 仓库权限也不会自动授予另一个私有仓库 `wechat-relay` 的权限。
+Ailu 0.2.0 以公开源码和 [GitHub Release](https://github.com/mcncarl/ailu/releases/tag/0.2.0) 分发。普通用户优先安装 Release 中经过验证的 `main.js`、`manifest.json` 和 `styles.css`；GitHub 自动生成的 “Source code” 压缩包不包含被忽略的 `main.js` 与 `build-attestation.json`，不能直接当作 Obsidian 插件包使用。
 
 当前可写功能的已验证支持范围是 macOS/POSIX。Windows 会 fail-closed 以只读模式启动，不执行 Agent 对话、行内修改、设置写入或部署。
 
-## 从源码安装
+## 从 Release 安装（推荐）
+
+1. 安装 Obsidian Desktop 1.11.4 或更高版本，并在目标 Vault 的“设置 → 第三方插件”中启用第三方插件。
+2. 从 [Ailu 0.2.0 Release](https://github.com/mcncarl/ailu/releases/tag/0.2.0) 下载 `main.js`、`manifest.json` 和 `styles.css`。可同时下载 `build-attestation.json`、`LICENSE` 与 `THIRD_PARTY_NOTICES.md` 核对构建和许可证。
+3. 在目标 Vault 中创建 `.obsidian/plugins/ailu/`，把三个运行文件放入该目录；不要把 GitHub 的 Source code ZIP 直接放进去。
+4. 完全退出并重开 Obsidian，在“设置 → 第三方插件”中启用 Ailu，然后继续执行下方“首次启动验收”。
+
+Release 安装不需要 Node.js；核心写锁仍要求系统存在可执行的 `/usr/bin/python3`，Agent 对话仍要求至少安装并登录 Claude Code 或 Codex。需要自行审计源码、修改插件或使用受验证部署/回滚工具时，再采用下面的源码流程。
+
+## 从源码构建安装
 
 ### 1. 准备环境
 
@@ -16,7 +29,6 @@ Ailu 0.2.0 当前保存在私有 GitHub 仓库，尚未提供可直接安装的 
 - Node.js 22.13 或更高版本及 npm。
 - 核心写锁和部署器要求 `/usr/bin/python3` 可执行。这不是只有 X 流程才需要的可选依赖。
 - 安装当前受支持版本的 [Claude Code](https://code.claude.com/) 或 [Codex](https://github.com/openai/codex)，至少选择一个，并先在终端完成一次登录。
-- 使用有权访问本私有仓库的 GitHub 账号完成 `gh auth login`。
 
 先核对前置条件：
 
@@ -25,13 +37,12 @@ node --version
 npm --version
 /usr/bin/python3 --version
 claude --version  # 或 codex --version
-gh auth status
 ```
 
 ### 2. 克隆、审计并构建
 
 ```bash
-gh repo clone mcncarl/ailu
+git clone https://github.com/mcncarl/ailu.git
 cd ailu
 npm ci
 npm run audit:dependencies
@@ -133,7 +144,7 @@ npm run deploy:plan -- --vault "/Users/你的用户名/Documents/My Vault"
 - 从源码构建需要 Node.js 22.13 或更高版本；核心写锁和部署要求可执行的 `/usr/bin/python3`。
 - 至少独立安装一个受支持的 Agent CLI：[Claude Code](https://code.claude.com/) 或 [Codex](https://github.com/openai/codex)。
 - 使用飞书同步时，需另行安装 [lark-cli](https://github.com/larksuite/cli)；Ailu 会在草稿区完成中国版飞书 `brand=feishu` 的配置与扫码授权，不会连接国际版 Lark。插件只发现现有 CLI，不代为安装或升级。
-- 使用 X 文章草稿时，安装已与 Ailu `0.2.0` 复核的公开 tag [`x-article-draft-uploader-v1.0.0`](https://github.com/mcncarl/yichen-skills/tree/x-article-draft-uploader-v1.0.0/yichen-x-article-draft-uploader)（commit `c53ea1b8b5d120c69af36afb222c0ee097928257`），并使用该版本锁定的 Python 依赖；不要安装会继续变化的任意 `main` 快照。插件只发现和调用现有 Skill，不复制、安装或升级它。该 Skill 使用其仓库现有的个人学习与非商业协议，不随 Ailu 的 AGPL 许可证重新授权。
+- 使用 X 文章草稿时，安装已与 Ailu `0.2.0` 复核的公开 tag [`x-article-draft-uploader-v1.0.1`](https://github.com/mcncarl/yichen-skills/tree/x-article-draft-uploader-v1.0.1/yichen-x-article-draft-uploader)（commit `9f679d9f28d656eb01b60d806faa709f85173c51`），并使用该版本锁定的 Python 依赖；不要安装会继续变化的任意 `main` 快照。插件只发现和调用现有 Skill，不复制、安装或升级它。该 Skill 使用独立的个人学习与非商业协议，商业使用须事先取得作者明确书面授权，不随 Ailu 的 AGPL 许可证重新授权。
 
 插件会从用户配置的路径、`~/.ailu/runtimes/`、系统 `PATH` 与支持的桌面客户端中发现现有可执行文件，不会自动复制、安装或升级 CLI 及其依赖。托管 runtime 必须是非符号链接的真实可执行文件。Ailu 只确认可执行文件和可选版本文本，不能预先保证旧版 CLI 的协议兼容；首次使用前应在终端升级、登录并执行一次版本检查。
 
@@ -177,7 +188,7 @@ Provider API Key 与公众号中转 Token 保存在 Obsidian SecretStorage，不
 
 `wechat-relay` 提供两条正式路线：
 
-当前 `wechat-relay` 也是独立的私有仓库，需要仓库所有者单独授权；仅有 Ailu 仓库权限时，该链接可能返回 404。未取得 relay 访问权和部署说明前，公众号上传不可用，但不影响对话、本地预览、飞书或 X 的独立功能。
+[`wechat-relay`](https://github.com/mcncarl/wechat-relay) 是独立公开仓库，可匿名读取和按固定 Release 部署。它不会随 Ailu 自动安装、托管或启动；公众号上传只有在使用者自己的服务器、白名单、凭据、HTTPS 和 readiness 全部验收后才可用。
 
 1. 固定 IPv4 VPS + 自有域名 + Caddy HTTPS。适合长期使用，Ailu 填写域名对应的 HTTPS 服务根地址，例如 `https://relay.example.com`。
 2. 固定 IPv4 VPS + Tailscale Serve。无需自有域名；Ailu 填写 tailnet 内的 HTTPS MagicDNS 服务根地址，例如 `https://relay-host.example-tailnet.ts.net`。不要启用 Tailscale Funnel，也不要把 Tailscale Serve 地址填成 `localhost`。
@@ -233,6 +244,24 @@ Obsidian 插件资产为 `main.js`、`manifest.json` 和 `styles.css`，并附 `
 
 提交普通问题前请先使用设置页的“复制脱敏诊断”。不要上传原始 `~/.ailu/logs/`、X 诊断目录、最终截图、Cookie 文件、草稿 URL、Vault 路径或任何 SecretStorage 内容。安全问题不要提交 issue，请按 [SECURITY.md](SECURITY.md) 私下报告；数据流与默认边界见 [PRIVACY.md](PRIVACY.md) 和 [THREAT_MODEL.md](THREAT_MODEL.md)。
 
-## 许可证
+## 相关公开仓库
 
-Ailu 使用 [GNU AGPL-3.0-or-later](LICENSE)。Copyright (C) 2026 Ailu contributors and original WeSight contributors。第三方组件的版权和许可证声明见 [Third-Party Notices](THIRD_PARTY_NOTICES.md)，相关许可证文本位于 [`LICENSES/`](LICENSES/) 目录。
+| 仓库 | 与 Ailu 的关系 | 许可证边界 |
+| --- | --- | --- |
+| [`mcncarl/ailu`](https://github.com/mcncarl/ailu) | Ailu 核心源码与 Release | AGPL-3.0-or-later |
+| [`mcncarl/wechat-relay`](https://github.com/mcncarl/wechat-relay) | 用户自建的公众号草稿中转服务 | AGPL-3.0-or-later，独立部署 |
+| [`mcncarl/yichen-skills`](https://github.com/mcncarl/yichen-skills) | 提供固定版本 X Article uploader Skill | 独立个人学习与非商业许可；商用须书面授权 |
+| [`mcncarl/agent-memory-vault`](https://github.com/mcncarl/agent-memory-vault) | 可选 Agent Memory Runtime v2 模板与安装来源 | 独立 MIT 许可证 |
+| [`freestylefly/wesight-obsidian`](https://github.com/freestylefly/wesight-obsidian) | Ailu 的 WeSight 0.4.0 上游来源 | AGPL-3.0-or-later；详见第三方声明 |
+
+这些仓库相互独立：公开、安装或授权其中一个，不会自动改变其他仓库的许可证、凭据或运行权限。
+
+## 许可证与商业使用
+
+> 商业使用：允许，但必须遵守 AGPL-3.0-or-later。
+>
+> 商业部署、定制、培训与技术支持：可联系[维护者](https://github.com/mcncarl)。
+
+Ailu 使用 [GNU AGPL-3.0-or-later](LICENSE)，无需另行购买 Ailu 核心的商业使用许可。收费服务不会替代或限制 AGPL 已授予的软件权利。
+
+Copyright (C) 2026 Ailu contributors and WeSight contributors。Ailu 是从 WeSight 0.4.0 修改而来的衍生作品；来源、修改声明、第三方组件版权和许可证见 [Third-Party Notices](THIRD_PARTY_NOTICES.md)，相关许可证文本位于 [`LICENSES/`](LICENSES/) 目录。独立安装的 X uploader Skill 不属于 Ailu AGPL 核心，其商业使用须按该 Skill 自带的 `LICENSE` 取得书面授权。

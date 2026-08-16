@@ -6,13 +6,23 @@ adapted third-party work.
 
 ## WeSight
 
-Ailu is derived in part from the
-[WeSight Obsidian plugin](https://github.com/freestylefly/wesight-obsidian).
-The combined work is distributed under the root AGPL license.
+Ailu is a substantially modified derivative of the
+[WeSight Obsidian plugin 0.4.0](https://github.com/freestylefly/wesight-obsidian/tree/0.4.0),
+whose tag resolves to commit
+[`4fab17721cf1deecf8c6f882a7afbf30943e980c`](https://github.com/freestylefly/wesight-obsidian/commit/4fab17721cf1deecf8c6f882a7afbf30943e980c).
+
+WeSight Obsidian plugin Copyright (C) 2026 WeSight contributors.
+
+Ailu modifications Copyright (C) 2026 Ailu contributors. The Ailu modification
+history began on 2026-08-05 and includes substantial changes to product
+identity, Agent runtimes, storage, publishing workflows, security boundaries,
+tests, documentation, and release tooling. The combined modified work is
+distributed under the root `AGPL-3.0-or-later` license.
 
 WeSight source releases through version 0.1.7 were made available under the
-MIT License. The previous license notice remains available at
-`LICENSES/MIT.txt`.
+MIT License. That earlier history is preserved only as provenance and is not
+the license of Ailu's direct WeSight 0.4.0 baseline. The previous MIT notice
+remains available at `LICENSES/MIT.txt`.
 
 ## MP Preview
 

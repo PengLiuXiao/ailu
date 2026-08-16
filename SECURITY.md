@@ -2,11 +2,16 @@
 
 ## Supported versions
 
-Until the first Ailu Release exists, security fixes are evaluated against the latest commit on the private repository's `main` branch. After releases begin, fixes will target the latest published release. Locally modified bundles are not supported versions.
+Security fixes target the latest published Ailu Release and the current
+`main` branch. Locally modified bundles are not supported versions.
 
 ## Reporting a vulnerability
 
-Do not open an issue for vulnerabilities, exposed credentials, private Vault content, draft URLs, media IDs, or diagnostic archives. GitHub private vulnerability reporting is not currently enabled for this private repository. Contact the repository owner through an existing private channel first, without including secrets, and request a private reporting channel. Include only the minimum reproduction needed to explain the problem and replace real content with synthetic examples.
+Do not open an issue for vulnerabilities, exposed credentials, private Vault
+content, draft URLs, media IDs, or diagnostic archives. Use
+[GitHub private vulnerability reporting](https://github.com/mcncarl/ailu/security/advisories/new).
+Include only the minimum reproduction needed to explain the problem and replace
+real content with synthetic examples.
 
 Never attach any of the following:
 

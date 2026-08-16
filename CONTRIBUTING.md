@@ -25,4 +25,9 @@ Generated `main.js` and `build-attestation.json` are release artifacts and are n
 
 Explain the user-visible behavior, trust-boundary changes, migration/rollback behavior, and tests. Security-sensitive changes should include negative tests proving that malformed paths, URLs, credentials, stale state, concurrency, and partial platform results still fail closed.
 
+By submitting a contribution, you license it under `AGPL-3.0-or-later` and
+confirm that you have the right to submit it under those terms. Third-party
+code or assets must retain their original copyright and license notices and be
+identified in `THIRD_PARTY_NOTICES.md` when incorporated or adapted.
+
 Never make a repository, package, release, deployment, or hosted endpoint public on behalf of the maintainer without the maintainer's explicit approval for that exact action.

@@ -205,6 +205,14 @@ requireCondition(
 );
 
 const thirdPartyNotices = fs.readFileSync('THIRD_PARTY_NOTICES.md', 'utf8');
+requireCondition(
+  thirdPartyNotices.includes('WeSight Obsidian plugin 0.4.0')
+    && thirdPartyNotices.includes('4fab17721cf1deecf8c6f882a7afbf30943e980c')
+    && thirdPartyNotices.includes('Copyright (C) 2026 WeSight contributors')
+    && thirdPartyNotices.includes('Ailu modifications Copyright (C) 2026 Ailu contributors')
+    && thirdPartyNotices.includes('2026-08-05'),
+  'Third-party notices must preserve the exact WeSight 0.4.0 provenance and Ailu modification notice.',
+);
 requireCondition(thirdPartyNotices.includes('## MP Preview'), 'Third-party notices must include MP Preview.');
 requireCondition(
   thirdPartyNotices.includes('LICENSES/MP-PREVIEW-MIT.txt'),
@@ -251,6 +259,15 @@ requireCondition(
     && readme.includes('Windows')
     && readme.includes('schema_version: 2'),
   'README must document canonical Ailu deployment and runtime API v2.',
+);
+requireCondition(
+  readme.includes('商业使用：允许，但必须遵守 AGPL-3.0-or-later')
+    && readme.includes('商业部署、定制、培训与技术支持：可联系')
+    && readme.includes('mcncarl/wechat-relay')
+    && readme.includes('mcncarl/yichen-skills')
+    && readme.includes('mcncarl/agent-memory-vault')
+    && readme.includes('freestylefly/wesight-obsidian'),
+  'README must document the commercial-use boundary and related public repositories.',
 );
 
 const gitignore = fs.readFileSync('.gitignore', 'utf8');
