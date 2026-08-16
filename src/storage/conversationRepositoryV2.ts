@@ -1761,7 +1761,13 @@ export class ConversationRepositoryV2 {
       if (turn && (isTerminalTurnState(turn.state) || turn.state === 'cancelRequested')) {
         throw new ConversationTurnStateError(`Turn ${turn.id} no longer accepts message patches.`);
       }
-      const messageSequence = state.conversation.messages.indexOf(message) + 1;
+      const messageIndex = state.conversation.messages.findIndex(item => item.id === message.id);
+      // The partial mutation fast path keeps only messages appended after the
+      // immutable snapshot. Convert that tail-local index back to the canonical
+      // conversation sequence before enforcing a context-checkpoint boundary.
+      const messageSequence = (state.partial ? state.snapshot.messageCount : 0)
+        + messageIndex
+        + 1;
       if (state.conversation.contextCheckpoint
         && messageSequence <= state.conversation.contextCheckpoint.throughMessageSequence) {
         throw new ConversationTurnStateError(

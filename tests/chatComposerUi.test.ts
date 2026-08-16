@@ -34,8 +34,20 @@ describe('chat composer UI contract', () => {
     );
   });
 
-  it('keeps runtime readiness visible and makes Agent Memory actions capability-gated', () => {
-    expect(chatViewSource).toContain("cls: 'ailu-runtime-status'");
+  it('keeps the header quiet without removing composer runtime controls', () => {
+    expect(chatViewSource).not.toContain("cls: 'ailu-runtime-status'");
+    expect(chatViewSource).not.toContain('CC Switch · ${this.ccSwitchLabel(ccSwitchStatus)}');
+    expect(stylesheet).not.toContain('.ailu-runtime-status');
+    expect(chatViewSource).toContain('this.renderAgentSelector(toolbarLeft)');
+    expect(chatViewSource).toContain('this.renderConfigSourceSelector(this.agentControlsEl)');
+    expect(chatViewSource).toContain('this.renderModelSelector(this.agentControlsEl)');
+    expect(chatViewSource).toContain('this.renderEffortSelector(this.agentControlsEl)');
+  });
+
+  it('deduplicates persistence backpressure notices and capability-gates Agent Memory', () => {
+    expect(chatViewSource).toContain('error instanceof ChatPersistenceBackpressureError');
+    expect(chatViewSource).toContain('this.persistenceBackpressureNotice?.hide()');
+    expect(chatViewSource).toContain('now - this.lastPersistenceBackpressureNoticeAt < 8_000');
     expect(chatViewSource).toContain('&& this.deps.isMemoryRuntimeReady()');
     expect(chatViewSource).not.toContain('new Notice(`Agent Memory 已禁用：');
   });

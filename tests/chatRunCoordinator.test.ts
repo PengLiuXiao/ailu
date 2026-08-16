@@ -1031,6 +1031,8 @@ describe('ChatRunCoordinator', () => {
     const runtime = new FakeRuntime();
     const persistence = new FakePersistence();
     const dependencies = persistence.dependencies(runtime);
+    const diagnostics: Array<{ stage: string; failureKind: string }> = [];
+    dependencies.onPersistenceFailure = input => diagnostics.push(input);
     dependencies.persistCheckpoint = async input => {
       persistence.checkpointCalls.push(clone(input));
       throw new Error('checkpoint journal failed');
@@ -1056,11 +1058,101 @@ describe('ChatRunCoordinator', () => {
     expect(result.persistenceError).toBeNull();
     expect(result.assistantMessage.content).toBe('before failure and after failure');
     expect(runtime.get('checkpoint-failure-run').aborted).toBe(false);
+    expect(diagnostics).toEqual([{ stage: 'checkpoint', failureKind: 'Error' }]);
+    expect(() => coordinator.assertContextPreparationAllowed('checkpoint-failure')).not.toThrow();
+
+    dependencies.persistCheckpoint = persistence.persistCheckpoint;
+    const next = await coordinator.submit(submission(
+      'checkpoint-failure',
+      'checkpoint-failure-next-run',
+    ));
+    await waitForRuntime(runtime, 'checkpoint-failure-next-run');
+    runtime.finish(
+      'checkpoint-failure-next-run',
+      { type: 'text', content: 'the next turn still runs' },
+      { type: 'done' },
+    );
+    await expect(next.completion).resolves.toMatchObject({
+      status: 'completed',
+      finalPersisted: true,
+    });
+
     const pruned: string[] = [];
     await vi.waitFor(() => {
       pruned.push(...coordinator.pruneIdleLanes(0).prunedConversationIds);
       expect(pruned).toContain('checkpoint-failure');
     });
+  });
+
+  test('does not retry a deterministic turn-state checkpoint failure before final recovery', async () => {
+    const runtime = new FakeRuntime();
+    const persistence = new FakePersistence();
+    const dependencies = persistence.dependencies(runtime);
+    dependencies.persistCheckpoint = async input => {
+      persistence.checkpointCalls.push(clone(input));
+      const error = new Error('checkpoint targeted an immutable message');
+      error.name = 'ConversationTurnStateError';
+      throw error;
+    };
+    const coordinator = new ChatRunCoordinator(dependencies);
+    const handle = await coordinator.submit(submission(
+      'deterministic-checkpoint-failure',
+      'deterministic-checkpoint-run',
+    ));
+    await waitForRuntime(runtime, 'deterministic-checkpoint-run');
+
+    runtime.emit('deterministic-checkpoint-run', { type: 'text', content: 'first partial' });
+    await coordinator.flushCheckpoints('deterministic-checkpoint-failure');
+    runtime.emit('deterministic-checkpoint-run', { type: 'text', content: ' and later output' });
+    await coordinator.flushCheckpoints('deterministic-checkpoint-failure');
+    expect(persistence.checkpointCalls).toHaveLength(1);
+
+    runtime.finish('deterministic-checkpoint-run', { type: 'done' });
+    await expect(handle.completion).resolves.toMatchObject({
+      status: 'completed',
+      finalPersisted: true,
+      persistenceError: null,
+    });
+    expect(persistence.checkpointCalls).toHaveLength(1);
+    expect(() => coordinator.assertContextPreparationAllowed('deterministic-checkpoint-failure'))
+      .not.toThrow();
+  });
+
+  test('clears only the checkpoint circuit superseded by that run final', async () => {
+    const runtime = new FakeRuntime();
+    const persistence = new FakePersistence();
+    const dependencies = persistence.dependencies(runtime);
+    dependencies.persistCheckpoint = async input => {
+      persistence.checkpointCalls.push(clone(input));
+      throw new Error(`checkpoint failed for ${input.runId}`);
+    };
+    const coordinator = new ChatRunCoordinator(dependencies);
+    const first = await coordinator.submit(submission('checkpoint-lane-a', 'checkpoint-run-a'));
+    const second = await coordinator.submit(submission('checkpoint-lane-b', 'checkpoint-run-b'));
+    await waitForRuntime(runtime, 'checkpoint-run-a');
+    await waitForRuntime(runtime, 'checkpoint-run-b');
+
+    runtime.emit('checkpoint-run-a', { type: 'text', content: 'partial A' });
+    runtime.emit('checkpoint-run-b', { type: 'text', content: 'partial B' });
+    await coordinator.flushCheckpoints('checkpoint-lane-a');
+    await coordinator.flushCheckpoints('checkpoint-lane-b');
+
+    runtime.finish('checkpoint-run-a', { type: 'done' });
+    await expect(first.completion).resolves.toMatchObject({ finalPersisted: true });
+    let remainingCircuit: unknown;
+    try {
+      coordinator.assertContextPreparationAllowed('unrelated-lane');
+    } catch (error) {
+      remainingCircuit = error;
+    }
+    expect(remainingCircuit).toMatchObject({
+      name: 'ChatPersistenceBackpressureError',
+      retainedUnpersistedConversations: 1,
+    });
+
+    runtime.finish('checkpoint-run-b', { type: 'done' });
+    await expect(second.completion).resolves.toMatchObject({ finalPersisted: true });
+    expect(() => coordinator.assertContextPreparationAllowed('unrelated-lane')).not.toThrow();
   });
 
   test('keeps a run unprunable when the complete final write really fails', async () => {

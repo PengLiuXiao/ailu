@@ -1,11 +1,12 @@
 import { Editor, ItemView, MarkdownRenderer, MarkdownView, Menu, Notice, setIcon, TFile, WorkspaceLeaf } from 'obsidian';
 
 import { getAgentDescriptor, SELECTABLE_AGENT_IDS } from '../agents';
-import type {
-  ChatContextService,
-  ChatConversationSnapshot,
-  ChatConversationWatch,
-  ChatRunCoordinator,
+import {
+  ChatPersistenceBackpressureError,
+  type ChatContextService,
+  type ChatConversationSnapshot,
+  type ChatConversationWatch,
+  type ChatRunCoordinator,
 } from '../chat';
 import { AILU_IDS, DEFAULT_CONVERSATION_TITLE, PLUGIN_NAME, VIEW_IDS } from '../ids';
 import {
@@ -206,7 +207,6 @@ export class AiluChatView extends ItemView {
   private skillPillEl: HTMLElement | null = null;
   private messagesEl!: HTMLElement;
   private inputEl!: HTMLTextAreaElement;
-  private statusEl: HTMLElement | null = null;
   private chatStorageBannerEl: HTMLElement | null = null;
   private historyButtonEl!: HTMLButtonElement;
   private historyPopoverEl: HTMLElement | null = null;
@@ -236,6 +236,9 @@ export class AiluChatView extends ItemView {
   private codexStatusUnsubscribe: (() => void) | null = null;
   private ccSwitchStatusUnsubscribe: (() => void) | null = null;
   private chatWriteStateUnsubscribe: (() => void) | null = null;
+  private persistenceBackpressureNotice: Notice | null = null;
+  private lastPersistenceBackpressureNotice = '';
+  private lastPersistenceBackpressureNoticeAt = 0;
   private chromeContextEl: HTMLElement | null = null;
   private agentSwitcherEl: HTMLElement | null = null;
   private agentControlsEl: HTMLElement | null = null;
@@ -353,6 +356,10 @@ export class AiluChatView extends ItemView {
     this.ccSwitchStatusUnsubscribe = null;
     this.chatWriteStateUnsubscribe?.();
     this.chatWriteStateUnsubscribe = null;
+    this.persistenceBackpressureNotice?.hide();
+    this.persistenceBackpressureNotice = null;
+    this.lastPersistenceBackpressureNotice = '';
+    this.lastPersistenceBackpressureNoticeAt = 0;
     this.artifactPreviewUrls.revokeAll();
     this.activeArtifactPreviewKeys.clear();
     this.unbindCurrentConversation();
@@ -556,11 +563,6 @@ export class AiluChatView extends ItemView {
         if (section === 'publishing') this.deps.openPublishing();
       },
       renderActions: headerActions => {
-        this.statusEl = headerActions.createSpan({
-          cls: 'ailu-runtime-status',
-          attr: { 'aria-live': 'polite' },
-        });
-
         const newChatButton = headerActions.createEl('button', { cls: 'clickable-icon ailu-header-btn' });
         setIcon(newChatButton, 'plus');
         newChatButton.ariaLabel = '新建对话';
@@ -2031,60 +2033,6 @@ export class AiluChatView extends ItemView {
   }
 
   private refreshStatus(): void {
-    if (!this.statusEl) return;
-    const settings = this.deps.getSettings();
-    const status = new RuntimeDiscovery({
-      configuredPaths: settings.configuredPaths,
-      configSources: settings.configSources,
-    }).resolve(this.agentId);
-    const codexStatus = this.agentId === 'codex' ? this.deps.runtimeManager.getCodexStatus() : null;
-    const ccSwitchStatus = this.agentId === 'claude' && settings.configSources.claude === 'ccSwitchCurrent'
-      ? this.deps.runtimeManager.getCcSwitchSnapshot()
-      : null;
-    const ready = status.found
-      && (!codexStatus || codexStatus.state === 'ready')
-      && (!ccSwitchStatus || ccSwitchStatus.state === 'ready');
-    const error = Boolean(
-      codexStatus?.state === 'error'
-      || codexStatus?.authenticated === false
-      || ccSwitchStatus?.state === 'error',
-    );
-    this.statusEl.toggleClass('is-ready', ready);
-    this.statusEl.toggleClass('is-missing', !status.found);
-    this.statusEl.toggleClass('is-error', error);
-    const statusTitle = !status.found
-      ? userFacingErrorText(status.error, '未找到本地运行程序。')
-      : ccSwitchStatus
-        ? ccSwitchStatus.error
-          ? userFacingErrorText(ccSwitchStatus.error, 'CC Switch 暂时不可用。')
-          : ccSwitchStatus.state === 'ready'
-            ? this.ccSwitchLabel(ccSwitchStatus)
-            : ''
-        : codexStatus?.error
-          ? userFacingErrorText(codexStatus.error, 'Codex 暂时不可用。')
-          : status.binaryPath ?? '';
-    this.statusEl.setAttribute('title', statusTitle);
-    this.statusEl.setText(!status.found
-      ? `${status.descriptor.shortName} 未安装`
-      : ccSwitchStatus
-      ? ccSwitchStatus.state === 'ready'
-        ? `CC Switch · ${this.ccSwitchLabel(ccSwitchStatus)}`
-        : ccSwitchStatus.state === 'error'
-          ? 'CC Switch 不可用'
-          : '正在检查 CC Switch'
-      : codexStatus?.authenticated === false
-      ? 'Codex 需要登录'
-      : codexStatus
-      ? codexStatus.state === 'ready'
-        ? 'Codex 已连接'
-        : codexStatus.state === 'connecting'
-          ? '正在连接 Codex'
-          : codexStatus.state === 'error'
-            ? 'Codex 连接异常'
-            : 'Codex 空闲'
-      : status.found
-        ? `${status.descriptor.shortName} 已就绪`
-        : `${status.descriptor.shortName} 未安装`);
     this.updateRunControls();
   }
 
@@ -2869,6 +2817,22 @@ export class AiluChatView extends ItemView {
     empty.createDiv({ cls: 'ailu-welcome-greeting', text: '从一篇笔记开始，或直接交给 Ailu。' });
   }
 
+  private showConversationSendFailure(prefix: string, error: unknown): void {
+    const detail = errorMessage(error);
+    const message = `${prefix}：${detail}`;
+    if (!(error instanceof ChatPersistenceBackpressureError)) {
+      new Notice(message);
+      return;
+    }
+    const now = Date.now();
+    if (this.lastPersistenceBackpressureNotice === detail
+      && now - this.lastPersistenceBackpressureNoticeAt < 8_000) return;
+    this.persistenceBackpressureNotice?.hide();
+    this.persistenceBackpressureNotice = new Notice(message, 10_000);
+    this.lastPersistenceBackpressureNotice = detail;
+    this.lastPersistenceBackpressureNoticeAt = now;
+  }
+
   private async sendMessage(): Promise<void> {
     if (this.running) return;
     const writeState = this.deps.getChatWriteState();
@@ -3143,10 +3107,10 @@ export class AiluChatView extends ItemView {
         this.running = this.deps.chatRunCoordinator.isConversationRunning(conversation.id);
         this.updateRunControls();
       }
-      new Notice(`未能启动当前对话：${errorMessage(error)}`);
+      this.showConversationSendFailure('未能启动当前对话', error);
     }
     } catch (error) {
-      new Notice(`未能准备当前对话：${errorMessage(error)}`);
+      this.showConversationSendFailure('未能准备当前对话', error);
     } finally {
       this.conversationOperations.finishPreparation(conversation.id);
       if (this.conversation?.id === conversation.id) this.updateRunControls();

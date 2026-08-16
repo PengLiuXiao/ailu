@@ -453,6 +453,21 @@ interface ConversationLane {
   watchers: Set<Watcher>;
 }
 
+type ChatPostStartPersistenceStage =
+  | 'activation'
+  | 'checkpoint'
+  | 'session'
+  | 'cancellation'
+  | 'final';
+
+interface ChatPersistenceCircuitEntry {
+  conversationId: string;
+  runId: string;
+  stage: ChatPostStartPersistenceStage;
+  failureKind: string;
+  detail: string;
+}
+
 export class ChatRunCoordinator {
   private readonly lanes = new Map<string, ConversationLane>();
   private readonly sessionOwners = new Map<string, ChatSessionOwnership>();
@@ -462,11 +477,8 @@ export class ChatRunCoordinator {
   private recoveryPromise: Promise<ChatRecoveryReport> | null = null;
   /** Serializes only the durable begin-turn mutation, never Runtime execution. */
   private persistenceAdmissionTail: Promise<void> = Promise.resolve();
-  private persistenceCircuit: {
-    conversationId: string;
-    runId: string;
-    detail: string;
-  } | null = null;
+  /** Unresolved post-start failures, isolated by run/stage/error kind. */
+  private readonly persistenceCircuits = new Map<string, ChatPersistenceCircuitEntry>();
   private activeArtifactMaterializations = 0;
   private readonly artifactMaterializationWaiters: Array<() => void> = [];
 
@@ -720,9 +732,9 @@ export class ChatRunCoordinator {
         // The write itself may have been in flight when another persistence
         // operation opened the circuit. Remember that boundary before exposing
         // the handle; executeRun will settle it without entering Runtime.
-        run.runtimeBlockedByPersistenceCircuit = this.persistenceCircuit !== null;
+        run.runtimeBlockedByPersistenceCircuit = this.persistenceCircuits.size > 0;
       } catch (error) {
-        if (this.persistenceCircuit) {
+        if (this.persistenceCircuits.size > 0) {
           this.rejectBackpressuredAdmission(
             lane,
             run,
@@ -730,7 +742,7 @@ export class ChatRunCoordinator {
               ?? new ChatPersistenceBackpressureError(
                 lane.conversationId,
                 'global',
-                Math.max(1, this.countUnpersistedLanes()),
+                this.countBackpressuredConversations(),
               ),
           );
           return;
@@ -817,7 +829,7 @@ export class ChatRunCoordinator {
   private shouldBlockBeforeRuntime(run: RunRecord): boolean {
     return run.startPersisted
       && run.runtimePromise === null
-      && (run.runtimeBlockedByPersistenceCircuit || this.persistenceCircuit !== null);
+      && (run.runtimeBlockedByPersistenceCircuit || this.persistenceCircuits.size > 0);
   }
 
   private async settleBeforeRuntimeWhenBlocked(
@@ -1142,6 +1154,7 @@ export class ChatRunCoordinator {
     // transient claim/config write failure. Do not keep the earlier warning as
     // a permanent finalPersisted=false once the atomic claim succeeds.
     run.sessionPersistenceError = null;
+    this.clearPersistenceCircuits(lane, run, 'session');
   }
 
   private async materializeArtifact(
@@ -1320,6 +1333,11 @@ export class ChatRunCoordinator {
             conversationId: lane.conversationId,
             assistantMessage,
           });
+          // A later complete checkpoint supersedes an earlier missed streaming
+          // snapshot for this same run. Other runs and failure stages remain
+          // independently backpressured.
+          run.checkpointPersistenceError = null;
+          this.clearPersistenceCircuits(lane, run, 'checkpoint');
           if (persisted) this.acceptPersistedConversation(lane, persisted);
         } catch (error) {
           this.recordCheckpointFailure(lane, run, error);
@@ -1406,6 +1424,7 @@ export class ChatRunCoordinator {
       // A complete final write contains the entire assistant payload and
       // therefore supersedes any missing transient streaming checkpoint.
       run.checkpointPersistenceError = null;
+      this.clearPersistenceCircuits(lane, run, 'checkpoint');
       run.finalPersisted = run.persistenceError === null
         && run.sessionPersistenceError === null;
       if (persisted) this.acceptPersistedConversation(lane, persisted);
@@ -1488,7 +1507,7 @@ export class ChatRunCoordinator {
     lane: ConversationLane,
     run: RunRecord,
     error: unknown,
-    stage: 'activation' | 'cancellation' | 'final',
+    stage: Exclude<ChatPostStartPersistenceStage, 'checkpoint' | 'session'>,
   ): void {
     this.openPersistenceCircuit(lane, run, error, stage);
     const detail = errorMessage(error);
@@ -1506,9 +1525,16 @@ export class ChatRunCoordinator {
   ): void {
     this.openPersistenceCircuit(lane, run, error, 'checkpoint');
     const detail = errorMessage(error);
-    run.checkpointPersistenceError = run.checkpointPersistenceError
-      ? `${run.checkpointPersistenceError}\n${detail}`
-      : detail;
+    if (!run.checkpointPersistenceError) run.checkpointPersistenceError = detail;
+    else if (!run.checkpointPersistenceError.split('\n').includes(detail)) {
+      run.checkpointPersistenceError = `${run.checkpointPersistenceError}\n${detail}`;
+    }
+    // Turn-state errors are deterministic for the current durable state. Do
+    // not hammer the same invalid mutation every second; the complete final
+    // write still carries the entire assistant payload.
+    if (error instanceof Error && error.name === 'ConversationTurnStateError') {
+      this.stopRunCheckpointing(run);
+    }
     run.finalPersisted = false;
     if (!isTerminalPhase(run.phase)) this.emitState(lane, run);
   }
@@ -1962,37 +1988,62 @@ export class ChatRunCoordinator {
       return new ChatPersistenceBackpressureError(
         conversationId,
         'conversation',
-        this.countUnpersistedLanes(),
+        this.countBackpressuredConversations(),
       );
     }
-    const retained = this.countUnpersistedLanes();
-    if (this.persistenceCircuit) {
+    if (this.persistenceCircuits.size > 0) {
       return new ChatPersistenceBackpressureError(
         conversationId,
         'global',
-        Math.max(1, retained),
+        this.countBackpressuredConversations(),
       );
     }
     return null;
   }
 
-  private countUnpersistedLanes(): number {
-    return [...this.lanes.values()].filter(lane => lane.unpersistedFailure !== null).length;
+  private countBackpressuredConversations(): number {
+    const conversationIds = new Set(
+      [...this.lanes.values()]
+        .filter(lane => lane.unpersistedFailure !== null)
+        .map(lane => lane.conversationId),
+    );
+    for (const circuit of this.persistenceCircuits.values()) {
+      conversationIds.add(circuit.conversationId);
+    }
+    return conversationIds.size;
   }
 
   private openPersistenceCircuit(
     lane: ConversationLane,
     run: RunRecord,
     error: unknown,
-    stage: 'activation' | 'checkpoint' | 'session' | 'cancellation' | 'final',
+    stage: ChatPostStartPersistenceStage,
   ): void {
-    this.notifyPersistenceFailure(stage, error);
-    if (this.persistenceCircuit) return;
-    this.persistenceCircuit = {
+    const failureKind = error instanceof Error && error.name ? error.name : typeof error;
+    const key = JSON.stringify([lane.conversationId, run.submission.runId, stage, failureKind]);
+    if (this.persistenceCircuits.has(key)) return;
+    this.persistenceCircuits.set(key, {
       conversationId: lane.conversationId,
       runId: run.submission.runId,
+      stage,
+      failureKind,
       detail: errorMessage(error),
-    };
+    });
+    this.notifyPersistenceFailure(stage, error);
+  }
+
+  private clearPersistenceCircuits(
+    lane: ConversationLane,
+    run: RunRecord,
+    stage: ChatPostStartPersistenceStage,
+  ): void {
+    for (const [key, circuit] of this.persistenceCircuits) {
+      if (circuit.conversationId === lane.conversationId
+        && circuit.runId === run.submission.runId
+        && circuit.stage === stage) {
+        this.persistenceCircuits.delete(key);
+      }
+    }
   }
 
   private notifyPersistenceFailure(

@@ -367,7 +367,10 @@ describe('chat coordinator with the v2 VaultStore', () => {
     expect((await store.getConversation(before.id))?.contextCheckpoint).toBeUndefined();
 
     const runtime = new HoldRuntime();
-    const coordinator = new ChatRunCoordinator(coordinatorDependencies(store, runtime));
+    const persistenceFailures: Array<{ stage: string; failureKind: string }> = [];
+    const dependencies = coordinatorDependencies(store, runtime);
+    dependencies.onPersistenceFailure = failure => persistenceFailures.push(failure);
+    const coordinator = new ChatRunCoordinator(dependencies);
     const next = submission(before.id, 'codex-atomic-turn');
     next.contextCheckpointDraft = context.contextCheckpointDraft;
     next.expectedRevision = context.sourceRevision;
@@ -386,6 +389,22 @@ describe('chat coordinator with the v2 VaultStore', () => {
     await waitForPrompts(runtime, [context.effectivePrompt]);
     runtime.finish(context.effectivePrompt, { type: 'text', content: 'Codex continued safely.' }, { type: 'done' });
     await expect(handle.completion).resolves.toMatchObject({ status: 'completed', finalPersisted: true });
+
+    expect(persistenceFailures).toEqual([]);
+    expect(() => coordinator.assertContextPreparationAllowed(before.id)).not.toThrow();
+    const followup = submission(before.id, 'codex-followup-turn');
+    const followupHandle = await coordinator.submit(followup);
+    await waitForPrompts(runtime, [followup.runtimeRequest.prompt]);
+    runtime.finish(
+      followup.runtimeRequest.prompt,
+      { type: 'text', content: 'The second turn also persisted safely.' },
+      { type: 'done' },
+    );
+    await expect(followupHandle.completion).resolves.toMatchObject({
+      status: 'completed',
+      finalPersisted: true,
+    });
+    expect(persistenceFailures).toEqual([]);
     await coordinator.shutdown();
     await store.releaseWriteLease();
   });

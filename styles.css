@@ -653,25 +653,6 @@ body.theme-light .ailu-view {
   margin-inline-start: auto;
 }
 
-.ailu-runtime-status {
-  max-width: 118px;
-  color: var(--text-faint);
-  font-size: 11px;
-  line-height: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.ailu-runtime-status.is-ready {
-  color: var(--text-muted);
-}
-
-.ailu-runtime-status.is-missing,
-.ailu-runtime-status.is-error {
-  color: var(--text-error);
-}
-
 button.ailu-header-btn,
 button.ailu-toolbar-btn {
   display: flex;
@@ -2806,10 +2787,6 @@ button.ailu-provider-icon-btn svg {
 }
 
 @media (max-width: 620px) {
-  .ailu-runtime-status {
-    display: none;
-  }
-
   .ailu-input-toolbar {
     align-items: flex-start;
   }

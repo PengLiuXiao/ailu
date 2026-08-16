@@ -1495,10 +1495,59 @@ describe('ConversationRepository v2', () => {
       applied: false,
       revision: begun.revision,
     });
+
+    const checkpointed = await store.checkpointAssistantMessage({
+      conversationId: first.conversationId,
+      turnId: next.turnId!,
+      messageId: next.assistantMessage.id,
+      patch: { content: 'Codex streaming output remains patchable after the handoff.' },
+    });
+    expect(checkpointed).toMatchObject({ applied: true });
+    const afterCheckpoint = await store.getConversation(first.conversationId);
+    expect(afterCheckpoint?.messages.at(-1)?.content)
+      .toBe('Codex streaming output remains patchable after the handoff.');
+    expect(afterCheckpoint?.contextCheckpoint?.throughMessageSequence).toBe(before.messages.length);
+
     const restarted = new VaultStore(adapter as unknown as DataAdapter, {
       instanceId: 'atomic-context-restart',
     });
-    await expect(restarted.getConversation(first.conversationId)).resolves.toEqual(after);
+    await expect(restarted.getConversation(first.conversationId)).resolves.toEqual(afterCheckpoint);
+  });
+
+  test('patches the canonical active tail after an earlier context checkpoint', async () => {
+    const { store } = await initialize();
+    const source = beginInput('prior-context-tail', 'prior-context-source');
+    await store.beginTurn(source);
+    await store.finalizeTurn({
+      conversationId: source.conversationId,
+      turnId: source.turnId!,
+      assistantPatch: { content: 'The completed source remains immutable.' },
+    });
+    const before = await store.getConversation(source.conversationId);
+    if (!before) throw new Error('Expected completed source conversation.');
+    const committed = await store.commitContextCheckpoint({
+      conversationId: before.id,
+      checkpoint: contextCheckpointDraft(before, 'prior-context-checkpoint'),
+      expectedRevision: before.revision,
+    });
+
+    const next = beginInput(source.conversationId, 'prior-context-next');
+    await store.beginTurn(next);
+    await expect(store.checkpointAssistantMessage({
+      conversationId: source.conversationId,
+      turnId: next.turnId!,
+      messageId: next.assistantMessage.id,
+      patch: { content: 'A new assistant tail is outside the immutable prefix.' },
+    })).resolves.toMatchObject({ applied: true });
+
+    const checkpointed = await store.getConversation(source.conversationId);
+    expect(checkpointed?.contextCheckpoint).toEqual(committed.checkpoint);
+    expect(checkpointed?.messages.at(-1)?.content)
+      .toBe('A new assistant tail is outside the immutable prefix.');
+    await store.finalizeTurn({
+      conversationId: source.conversationId,
+      turnId: next.turnId!,
+    });
   });
 
   test('rolls back both checkpoint and turn when the planned source revision is stale', async () => {
