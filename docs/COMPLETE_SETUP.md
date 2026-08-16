@@ -1,6 +1,6 @@
 # Ailu 完整安装与集成配置
 
-这份指南面向第一次接触 Ailu 的获授权使用者。完成 README 的源码安装，只能证明“插件、Agent 对话和本地草稿预览可用”；公众号、X Article、飞书和 Agent Memory 都是独立集成，需要分别安装、配置和验收。
+这份指南面向第一次接触 Ailu 的使用者。完成 README 的 Release 安装或源码构建安装，只能证明“插件、Agent 对话和本地草稿预览可用”；公众号、X Article、飞书和 Agent Memory 都是独立集成，需要分别安装、配置和验收。
 
 不要把 AppSecret、Cookie 值、Relay Token、飞书令牌、SSH 私钥或真实记忆内容粘贴到聊天、Issue、日志或 Git。下文的 `<...>` 都是占位符，必须换成使用者自己的值。
 
@@ -19,7 +19,7 @@ flowchart LR
 
 ## 0. 先完成核心安装
 
-先严格完成 [README 的“从源码安装”](../README.md#从源码安装) 和“首次启动验收”。成功信号是：
+先严格完成 [README 的推荐安装流程](../README.md#从-release-安装推荐) 和“首次启动验收”。需要审计或修改源码时，也可使用 README 的源码构建安装流程。成功信号是：
 
 - 设置页至少有一个 Agent 显示已就绪；
 - Plan 模式下发送 `只回复 OK，不读写任何文件。` 能收到 `OK`；
@@ -29,11 +29,11 @@ flowchart LR
 
 ## 1. 配置公众号服务器与中转服务
 
-### 1.1 准备权限、服务器和公众号参数
+### 1.1 准备服务器和公众号参数
 
 你需要：
 
-- 仓库所有者单独授予私有仓库 [`mcncarl/wechat-relay`](https://github.com/mcncarl/wechat-relay) 的读取权限；Ailu 仓库权限不会自动继承；
+- 可匿名读取的公开仓库 [`mcncarl/wechat-relay`](https://github.com/mcncarl/wechat-relay) 及其固定 [`0.1.0` Release](https://github.com/mcncarl/wechat-relay/releases/tag/0.1.0)；
 - 一台 Ubuntu 24.04 VPS（虚拟专用服务器），具有真实、长期稳定的公网出口 IPv4；
 - Node.js 22，以及 `build-essential`、Python 3、Git、OpenSSL；
 - 公众号 AppID、AppSecret，并由账号管理员把这台 VPS 的实际出口 IPv4 加入公众号 API 白名单；
@@ -75,37 +75,12 @@ sudo -H -u wechat-relay-build /usr/bin/npm --version
 
 最后两条也必须正常输出；它们证明构建账号实际看得到依赖。若 `/usr/bin/node` 不存在，不要靠修改 systemd unit 或指向个人 Home 的临时符号链接绕过，应先修正系统级 Node 安装。
 
-私有仓库建议使用一个只绑定 `wechat-relay` 的只读 Deploy Key（部署密钥）。先在服务器为专用账号生成独立密钥：
-
-```bash
-sudo install -d -m 0700 \
-  -o wechat-relay-build \
-  -g wechat-relay-build \
-  /var/lib/wechat-relay-build/.ssh
-
-sudo -H -u wechat-relay-build ssh-keygen \
-  -t ed25519 -N "" \
-  -f /var/lib/wechat-relay-build/.ssh/id_ed25519 \
-  -C "wechat-relay read-only deploy"
-
-sudo cat /var/lib/wechat-relay-build/.ssh/id_ed25519.pub
-```
-
-只把最后输出的公钥添加到 `wechat-relay` 仓库的 **Settings → Deploy keys → Add deploy key**，不要勾选写权限；私钥必须留在服务器。具体界面见 [GitHub Deploy Key 官方说明](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys)。每个私有仓库使用不同密钥，不要复用。
-
-首次连接前，对照 [GitHub 官方 SSH 指纹](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints)核验主机，不要盲目接受未知指纹。下面命令出现“successfully authenticated, but GitHub does not provide shell access”即代表仓库身份可用；GitHub 不提供交互 shell，因此该命令可能仍以非零状态退出：
-
-```bash
-sudo -H -u wechat-relay-build ssh -T git@github.com
-```
-
-不要把 GitHub Token 写进 clone URL 或 shell 历史。
-
-配置好只读凭据后，以构建账号克隆并安装生产依赖：
+公开仓库不需要 GitHub Token、Deploy Key 或账号登录。以构建账号匿名克隆固定 tag，并安装生产依赖：
 
 ```bash
 sudo -H -u wechat-relay-build \
-  git clone git@github.com:mcncarl/wechat-relay.git /opt/wechat-relay
+  git clone --branch 0.1.0 --depth 1 \
+  https://github.com/mcncarl/wechat-relay.git /opt/wechat-relay
 
 cd /opt/wechat-relay
 sudo -H -u wechat-relay-build /usr/bin/npm ci --omit=dev
@@ -253,8 +228,8 @@ sudo systemctl reload caddy
 Ailu 不捆绑 `x-article-draft-uploader`。Ailu `0.2.0` 当前复核并固定使用下面的公开版本：
 
 - 仓库：[`mcncarl/yichen-skills`](https://github.com/mcncarl/yichen-skills)
-- tag：[`x-article-draft-uploader-v1.0.0`](https://github.com/mcncarl/yichen-skills/tree/x-article-draft-uploader-v1.0.0/yichen-x-article-draft-uploader)
-- commit：[`c53ea1b8b5d120c69af36afb222c0ee097928257`](https://github.com/mcncarl/yichen-skills/commit/c53ea1b8b5d120c69af36afb222c0ee097928257)
+- tag：[`x-article-draft-uploader-v1.0.1`](https://github.com/mcncarl/yichen-skills/tree/x-article-draft-uploader-v1.0.1/yichen-x-article-draft-uploader)
+- commit：[`9f679d9f28d656eb01b60d806faa709f85173c51`](https://github.com/mcncarl/yichen-skills/commit/9f679d9f28d656eb01b60d806faa709f85173c51)
 - 结果契约：`x-article-persistence-v1`
 
 不要安装会继续变化的任意 `main` 快照。首次安装到 Ailu 可发现的 Codex 目录时，直接运行下面的固定版本命令。它先检查目标目录，已有旧版本时只报错，不会覆盖：
@@ -267,7 +242,7 @@ Ailu 不捆绑 `x-article-draft-uploader`。Ailu `0.2.0` 当前复核并固定�
     exit 1
   fi
   npx --yes skills@1.5.22 add \
-    "https://github.com/mcncarl/yichen-skills/tree/x-article-draft-uploader-v1.0.0/yichen-x-article-draft-uploader" \
+    "https://github.com/mcncarl/yichen-skills/tree/x-article-draft-uploader-v1.0.1/yichen-x-article-draft-uploader" \
     --skill x-article-draft-uploader --global --agent codex --copy --yes
 )
 ```
@@ -288,6 +263,7 @@ scripts/parse_markdown.py
 scripts/export_x_cookies_from_chrome.py
 requirements.txt
 VERSION
+LICENSE
 ```
 
 只装到 `~/.claude/skills/` 不会被 Ailu 自动发现。若在设置页手填上传脚本，必须填写完整绝对路径；该字段不会展开 `~`。
@@ -308,7 +284,7 @@ else
 fi
 ```
 
-该 Skill 使用其自身的个人学习与非商业协议，不因 Ailu 使用 AGPL 而改变。
+该 Skill 使用其自身的个人学习与非商业协议：客户交付、付费产品或服务、公司内部部署、市场打包、课程打包及其他商业用途，必须事先取得作者明确书面授权。具体联系方式和完整条款见 Skill 目录中的 `LICENSE`；该限制不因 Ailu 使用 AGPL 而改变，也不适用于 Ailu 核心。
 
 ### 2.2 安装独立 Python 与 Playwright 环境
 

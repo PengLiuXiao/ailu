@@ -13,6 +13,17 @@ const guide = fs.readFileSync(
 );
 
 describe('complete onboarding documentation', () => {
+  test('documents public Release and anonymous source installation', () => {
+    expect(readme).toContain('GitHub Release');
+    expect(readme).toContain('git clone https://github.com/mcncarl/ailu.git');
+    expect(readme).toContain('商业使用：允许，但必须遵守 AGPL-3.0-or-later');
+    expect(readme).toContain('商业部署、定制、培训与技术支持：可联系');
+    expect(guide).toContain('公开仓库不需要 GitHub Token、Deploy Key 或账号登录');
+    expect(guide).toContain('git clone --branch 0.1.0 --depth 1');
+    expect(readme).not.toContain('本私有仓库');
+    expect(guide).not.toContain('获授权使用者');
+  });
+
   test('links the complete integration guide from the core first-run flow', () => {
     expect(readme).toContain('[《Ailu 完整安装与集成配置》](docs/COMPLETE_SETUP.md)');
     expect(readme).toContain('Ubuntu 服务器、公众号固定出口 IPv4 白名单');
@@ -54,8 +65,8 @@ describe('complete onboarding documentation', () => {
       'scripts/upload_markdown_to_x_article.py',
       'scripts/parse_markdown.py',
       'scripts/export_x_cookies_from_chrome.py',
-      'x-article-draft-uploader-v1.0.0',
-      'c53ea1b8b5d120c69af36afb222c0ee097928257',
+      'x-article-draft-uploader-v1.0.1',
+      '9f679d9f28d656eb01b60d806faa709f85173c51',
       'skills@1.5.22',
       '--requirement "$AILU_X_SKILL_HOME/requirements.txt"',
       'x-article-persistence-v1',
@@ -72,6 +83,8 @@ describe('complete onboarding documentation', () => {
       'X 草稿已创建并严格核验',
       '不点击 X 的最终发布按钮',
       '不要安装会继续变化的任意 `main` 快照',
+      '商业用途，必须事先取得作者明确书面授权',
+      '该限制不因 Ailu 使用 AGPL 而改变，也不适用于 Ailu 核心',
     ]) {
       expect(guide).toContain(required);
     }
