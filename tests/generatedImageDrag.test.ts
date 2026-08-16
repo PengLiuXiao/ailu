@@ -10,11 +10,14 @@ import type { ChatImageArtifact } from '../src/types';
 import { readVerifiedVaultFile, verifyVaultNewFileTarget } from '../src/utils/vault';
 import {
   AILU_GENERATED_IMAGE_DRAG_TYPE,
+  CoverPathSyncController,
   GeneratedImageDropController,
   GeneratedImageDropError,
   assignGeneratedImageAsCover,
   importGeneratedImageIntoNote,
   readGeneratedImageDragPayload,
+  rewriteRenamedCoverReference,
+  syncRenamedCoverReferences,
   writeGeneratedImageDragPayload,
 } from '../src/ui/generatedImageDrag';
 
@@ -356,5 +359,93 @@ describe('Ailu generated image cover assignment', () => {
     expect(failure.message).toContain('封面属性写入失败');
     expect(failure.attachmentPath).toBe('附件/orphaned-cover.png');
     expect(fixture.createBinary).toHaveBeenCalledOnce();
+  });
+});
+
+describe('Ailu publishing cover path synchronization', () => {
+  function syncFixture(frontmatters: Record<string, Record<string, unknown>>) {
+    const notes = Object.keys(frontmatters).map(notePath => ({
+      path: notePath,
+      extension: 'md',
+    } as TFile));
+    const processFrontMatter = vi.fn(async (
+      note: TFile,
+      update: (frontmatter: Record<string, unknown>) => void,
+    ) => update(frontmatters[note.path]));
+    const app = {
+      vault: { getMarkdownFiles: vi.fn(() => notes) },
+      metadataCache: {
+        getFileCache: vi.fn((note: TFile) => ({ frontmatter: frontmatters[note.path] })),
+      },
+      fileManager: { processFrontMatter },
+    } as unknown as App;
+    return { app, processFrontMatter };
+  }
+
+  test('rewrites plain, relative, and wikilink cover references without touching remote values', () => {
+    const oldPath = '文章/assets/旧标题/cover image.png';
+    const newPath = '文章/assets/新标题/renamed cover.png';
+
+    expect(rewriteRenamedCoverReference(oldPath, '文章/笔记.md', oldPath, newPath)).toBe(newPath);
+    expect(rewriteRenamedCoverReference(
+      '![[assets/旧标题/cover image.png|封面]]',
+      '文章/笔记.md',
+      oldPath,
+      newPath,
+    )).toBe('![[assets/新标题/renamed cover.png|封面]]');
+    expect(rewriteRenamedCoverReference(
+      'https://cdn.example.test/cover.png',
+      '文章/笔记.md',
+      oldPath,
+      newPath,
+    )).toBeNull();
+  });
+
+  test('updates both wechat_cover and x_cover when one attachment path moves', async () => {
+    const oldPath = '文章/assets/Ailu/shared-cover.png';
+    const newPath = '文章/assets/新标题/shared-cover.png';
+    const frontmatters = {
+      '文章/发布稿.md': {
+        wechat_cover: oldPath,
+        x_cover: `![[${oldPath}]]`,
+        cover: oldPath,
+      },
+      '文章/无关.md': { wechat_cover: '文章/assets/other.png' },
+    };
+    const fixture = syncFixture(frontmatters);
+
+    const result = await syncRenamedCoverReferences(fixture.app, oldPath, newPath);
+
+    expect(result).toEqual({ notesUpdated: 1, propertiesUpdated: 2 });
+    expect(frontmatters['文章/发布稿.md']).toEqual({
+      wechat_cover: newPath,
+      x_cover: `![[${newPath}]]`,
+      cover: oldPath,
+    });
+    expect(fixture.processFrontMatter).toHaveBeenCalledOnce();
+  });
+
+  test('serializes consecutive WeChat and X cover moves', async () => {
+    const frontmatters = {
+      '文章/发布稿.md': {
+        wechat_cover: 'assets/旧标题/wechat.png',
+        x_cover: 'assets/旧标题/x.png',
+      },
+    };
+    const fixture = syncFixture(frontmatters);
+    const updated = vi.fn();
+    const controller = new CoverPathSyncController({ app: fixture.app, onUpdated: updated });
+
+    await Promise.all([
+      controller.enqueue('assets/旧标题/wechat.png', 'assets/新标题/wechat.png'),
+      controller.enqueue('assets/旧标题/x.png', 'assets/新标题/x.png'),
+    ]);
+    await controller.shutdown();
+
+    expect(frontmatters['文章/发布稿.md']).toEqual({
+      wechat_cover: 'assets/新标题/wechat.png',
+      x_cover: 'assets/新标题/x.png',
+    });
+    expect(updated).toHaveBeenCalledTimes(2);
   });
 });

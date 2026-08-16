@@ -109,6 +109,23 @@ function stringMetadata(
   return '';
 }
 
+function stringMetadataEntries(
+  frontmatter: Record<string, unknown> | undefined,
+  ...keys: string[]
+): Array<{ key: string; value: string }> {
+  const seen = new Set<string>();
+  const entries: Array<{ key: string; value: string }> = [];
+  for (const key of keys) {
+    const raw = frontmatter?.[key];
+    if (typeof raw !== 'string' || !raw.trim()) continue;
+    const value = raw.trim();
+    if (seen.has(value)) continue;
+    seen.add(value);
+    entries.push({ key, value });
+  }
+  return entries;
+}
+
 function booleanMetadata(
   frontmatter: Record<string, unknown> | undefined,
   ...keys: string[]
@@ -266,7 +283,7 @@ export async function buildWeChatSnapshot(app: App, file: TFile): Promise<WeChat
   }
   markdown = await replaceRemoteImages(markdown, assets, warnings, bodyBudget);
 
-  const cover = stringMetadata(
+  const coverCandidates = stringMetadataEntries(
     frontmatter,
     'wechat_cover',
     'wechatCover',
@@ -277,7 +294,9 @@ export async function buildWeChatSnapshot(app: App, file: TFile): Promise<WeChat
     '封面',
   );
   let coverAssetToken: string | null = null;
-  if (cover) {
+  const failedCoverKeys: string[] = [];
+  let selectedCoverKey = '';
+  for (const { key, value: cover } of coverCandidates) {
     try {
       const coverBudget: AssetBudget = {
         count: bodyBudget.count,
@@ -296,13 +315,25 @@ export async function buildWeChatSnapshot(app: App, file: TFile): Promise<WeChat
         assets.set(coverFile.path, coverAsset);
       }
       coverAssetToken = coverAsset.token;
-    } catch (error) {
-      warnings.push({
-        code: 'cover',
-        message: `封面“${cover}”无法读取：${userFacingErrorMessage(error, '读取失败，请检查封面图片。')}`,
-        blocking: true,
-      });
+      selectedCoverKey = key;
+      break;
+    } catch {
+      failedCoverKeys.push(key);
     }
+  }
+  if (failedCoverKeys.length > 0) {
+    const fallback = coverAssetToken
+      ? `备用属性 ${selectedCoverKey}`
+      : assets.size > 0
+        ? '正文首图'
+        : '';
+    warnings.push({
+      code: fallback ? 'cover-fallback' : 'cover',
+      message: fallback
+        ? `公众号封面属性 ${failedCoverKeys.join('、')} 指向的图片不可用，已自动改用${fallback}。`
+        : `公众号封面属性 ${failedCoverKeys.join('、')} 指向的图片不可用，且正文没有可用图片作为备用封面。`,
+      blocking: !fallback,
+    });
   }
 
   const prepared: Omit<WeChatPreviewSnapshot, 'contentHash'> = {

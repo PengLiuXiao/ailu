@@ -1112,20 +1112,14 @@ export class PublishingStudioView extends ItemView {
   private renderActions(parent: HTMLElement): void {
     const actions = parent.createDiv({ cls: 'ailu-publishing-actions' });
     const copy = actions.createEl('button', { text: '复制排版', attr: { type: 'button' } });
-    copy.disabled = !this.articleEl || Boolean(this.operation) || this.sourceDirty;
     copy.onclick = () => void this.copyPreview();
     const preflight = actions.createEl('button', { text: '检查草稿', attr: { type: 'button' } });
-    preflight.disabled = !this.articleEl || Boolean(this.operation) || this.sourceDirty;
     preflight.onclick = () => void this.runPreflight();
     const publish = actions.createEl('button', {
       cls: 'mod-cta',
       text: this.operation === 'publishing' ? '正在上传草稿…' : '上传到草稿箱',
       attr: { type: 'button' },
     });
-    publish.disabled = !this.articleEl
-      || Boolean(this.operation)
-      || this.sourceDirty
-      || this.hasBlockingWarnings();
     publish.onclick = () => void this.publishDraft();
   }
 
@@ -1381,6 +1375,25 @@ export class PublishingStudioView extends ItemView {
     return Boolean(this.snapshot?.warnings.some(warning => warning.blocking));
   }
 
+  private blockingWarningMessage(): string | null {
+    return this.snapshot?.warnings.find(warning => warning.blocking)?.message ?? null;
+  }
+
+  private reserveWeChatOperation(operation: Exclude<Operation, null>): boolean {
+    if (this.operation) {
+      new Notice(this.operation === 'publishing'
+        ? '公众号草稿正在上传并核验，请等待当前操作完成。'
+        : '公众号草稿正在检查，请等待当前操作完成。');
+      return false;
+    }
+    this.operation = operation;
+    return true;
+  }
+
+  private async refreshWeChatPreviewForAction(): Promise<void> {
+    if (this.sourceDirty || !this.articleEl) await this.reload();
+  }
+
   private async prepareCurrent(): Promise<PreparedArticle> {
     if (this.sourceDirty || !this.file || !this.snapshot || !this.themeDocument || !this.articleEl) {
       throw new Error('当前排版尚未准备好');
@@ -1517,10 +1530,11 @@ export class PublishingStudioView extends ItemView {
   }
 
   private async runPreflight(): Promise<void> {
-    this.operation = 'preflight';
+    if (!this.reserveWeChatOperation('preflight')) return;
     this.statusText = '正在检查标题、图片和微信兼容性…';
-    await this.renderWeChatOperationState();
     try {
+      await this.renderWeChatOperationState();
+      await this.refreshWeChatPreviewForAction();
       const prepared = await this.prepareCurrent();
       const advisories = this.publishingAdvisories(prepared);
       const summary = `${prepared.stats.imageCount} 张正文图，${prepared.stats.compressedImageCount} 张已压缩`;
@@ -1533,7 +1547,8 @@ export class PublishingStudioView extends ItemView {
       }
     } catch (error) {
       this.statusText = '';
-      new Notice(userFacingErrorMessage(error, '草稿检查失败，请刷新预览后重试。'));
+      new Notice(this.blockingWarningMessage()
+        ?? userFacingErrorMessage(error, '草稿检查失败，请刷新预览后重试。'));
     } finally {
       this.operation = null;
       await this.finishWeChatOperation();
@@ -1541,11 +1556,11 @@ export class PublishingStudioView extends ItemView {
   }
 
   private async copyPreview(): Promise<void> {
-    if (!this.articleEl) return;
-    this.operation = 'preflight';
+    if (!this.reserveWeChatOperation('preflight')) return;
     this.statusText = '正在按草稿发布规则净化复制内容…';
-    await this.renderWeChatOperationState();
     try {
+      await this.renderWeChatOperationState();
+      await this.refreshWeChatPreviewForAction();
       const prepared = await this.prepareCurrent();
       const { html, plain } = buildPreparedArticleClipboardPayload(prepared);
       if (typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
@@ -1563,7 +1578,8 @@ export class PublishingStudioView extends ItemView {
       new Notice(`${this.statusText}。`);
     } catch (error) {
       this.statusText = '';
-      new Notice(userFacingErrorMessage(error, '复制排版内容失败。'));
+      new Notice(this.blockingWarningMessage()
+        ?? userFacingErrorMessage(error, '复制排版内容失败。'));
     } finally {
       this.operation = null;
       await this.finishWeChatOperation();
@@ -1571,14 +1587,19 @@ export class PublishingStudioView extends ItemView {
   }
 
   private async publishDraft(): Promise<void> {
+    if (this.operation) {
+      this.reserveWeChatOperation('preflight');
+      return;
+    }
     if (this.deps.getSettings().publishing.transport !== 'localRelay') {
       new Notice('当前安全版本仅开放自托管公众号中转，请在草稿设置中切换。');
       return;
     }
-    this.operation = 'preflight';
+    if (!this.reserveWeChatOperation('preflight')) return;
     this.statusText = '上传前重新执行完整检查…';
-    await this.renderWeChatOperationState();
     try {
+      await this.renderWeChatOperationState();
+      await this.refreshWeChatPreviewForAction();
       const prepared = await this.prepareCurrent();
       const intent = this.capturePublicationIntent(prepared);
       const advisories = this.publishingAdvisories(prepared);
@@ -1617,7 +1638,8 @@ export class PublishingStudioView extends ItemView {
         new Notice(userFacingErrorText(error.message, '公众号草稿可能已创建，但回读校验未通过；请先核对草稿箱。'), 0);
       } else {
         this.statusText = '';
-        new Notice(userFacingErrorMessage(error, '公众号草稿上传失败，请查看本地诊断日志。'));
+        new Notice(this.blockingWarningMessage()
+          ?? userFacingErrorMessage(error, '公众号草稿上传失败，请查看本地诊断日志。'));
       }
     } finally {
       this.operation = null;

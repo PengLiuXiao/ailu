@@ -127,4 +127,19 @@ describe('WeChat cover preview UI contract', () => {
       /if \(nextTarget !== this\.target\) \{[\s\S]*?if \(nextTarget !== 'wechat'\) this\.releaseWeChatCoverObjectUrl\(\);/,
     );
   });
+
+  test('keeps all primary WeChat actions clickable and guards concurrent work in the handler', () => {
+    const renderActions = publishingStudioSource.match(
+      /private renderActions\([\s\S]*?\n {2}private renderState\(/,
+    )?.[0] ?? '';
+
+    expect(renderActions).toContain("'上传到草稿箱'");
+    expect(renderActions).not.toContain('.disabled =');
+    expect(publishingStudioSource).toContain(
+      'private reserveWeChatOperation(operation: Exclude<Operation, null>)',
+    );
+    expect(publishingStudioSource).toMatch(
+      /private async publishDraft\(\)[\s\S]*?reserveWeChatOperation\('preflight'\)/,
+    );
+  });
 });

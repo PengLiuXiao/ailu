@@ -199,4 +199,110 @@ describe('WeChat snapshot remote images', () => {
     expect(fetchRemoteImageBytes).toHaveBeenCalledWith(explicitCover, { maxBytes: 10 * 1024 * 1024 });
     expect(snapshot.coverAssetToken).toBe(snapshot.assets[0]?.token);
   });
+
+  test('uses the next configured cover when the preferred wechat_cover path is stale', async () => {
+    vi.mocked(buildShareSnapshot).mockResolvedValue({
+      title: '封面备用属性',
+      markdown: '正文',
+      contentHash: 'share-hash',
+      assets: [],
+      warnings: [],
+    });
+    vi.mocked(fetchRemoteImageBytes).mockResolvedValue({
+      body: Buffer.from(PNG_BYTES),
+      finalUrl: CDN_IMAGE_URL,
+    });
+    const app = {
+      metadataCache: {
+        getFileCache: vi.fn().mockReturnValue({
+          frontmatter: {
+            wechat_cover: 'assets/旧标题/已移动.png',
+            cover: CDN_IMAGE_URL,
+          },
+        }),
+        getFirstLinkpathDest: vi.fn().mockReturnValue(null),
+      },
+    } as unknown as App;
+    const file = new TFile();
+    file.path = '文章/封面备用属性.md';
+
+    const snapshot = await buildWeChatSnapshot(app, file);
+
+    expect(fetchRemoteImageBytes).toHaveBeenCalledOnce();
+    expect(snapshot.coverAssetToken).toBe(snapshot.assets[0]?.token);
+    expect(snapshot.warnings).toHaveLength(1);
+    expect(snapshot.warnings[0]).toMatchObject({
+      code: 'cover-fallback',
+      blocking: false,
+    });
+    expect(snapshot.warnings[0]?.message).toContain('备用属性 cover');
+  });
+
+  test('falls back to the first body image when the explicit cover moved', async () => {
+    vi.mocked(buildShareSnapshot).mockResolvedValue({
+      title: '正文首图备用封面',
+      markdown: '正文',
+      contentHash: 'share-hash',
+      assets: [{
+        token: 'share-body',
+        vaultPath: '文章/assets/body.png',
+        fileName: 'body.png',
+        mimeType: 'image/png',
+        contentHash: 'body-hash',
+        body: PNG_BYTES,
+      }],
+      warnings: [],
+    });
+    const app = {
+      metadataCache: {
+        getFileCache: vi.fn().mockReturnValue({
+          frontmatter: { wechat_cover: '文章/assets/旧标题/cover.png' },
+        }),
+        getFirstLinkpathDest: vi.fn().mockReturnValue(null),
+      },
+    } as unknown as App;
+    const file = new TFile();
+    file.path = '文章/正文首图备用封面.md';
+
+    const snapshot = await buildWeChatSnapshot(app, file);
+
+    expect(snapshot.coverAssetToken).toBeNull();
+    expect(snapshot.assets[0]).toMatchObject({ source: '文章/assets/body.png' });
+    expect(snapshot.warnings).toHaveLength(1);
+    expect(snapshot.warnings[0]).toMatchObject({
+      code: 'cover-fallback',
+      blocking: false,
+    });
+    expect(snapshot.warnings[0]?.message).toContain('已自动改用正文首图');
+  });
+
+  test('keeps a clickable hard error when neither configured nor body cover exists', async () => {
+    vi.mocked(buildShareSnapshot).mockResolvedValue({
+      title: '没有备用封面',
+      markdown: '正文',
+      contentHash: 'share-hash',
+      assets: [],
+      warnings: [],
+    });
+    const app = {
+      metadataCache: {
+        getFileCache: vi.fn().mockReturnValue({
+          frontmatter: { wechat_cover: '文章/assets/旧标题/cover.png' },
+        }),
+        getFirstLinkpathDest: vi.fn().mockReturnValue(null),
+      },
+    } as unknown as App;
+    const file = new TFile();
+    file.path = '文章/没有备用封面.md';
+
+    const snapshot = await buildWeChatSnapshot(app, file);
+
+    expect(snapshot.coverAssetToken).toBeNull();
+    expect(snapshot.warnings).toHaveLength(1);
+    expect(snapshot.warnings[0]).toMatchObject({
+      code: 'cover',
+      blocking: true,
+    });
+    expect(snapshot.warnings[0]?.message).toContain('正文没有可用图片');
+  });
 });

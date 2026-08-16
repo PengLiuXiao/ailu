@@ -46,6 +46,19 @@ export interface GeneratedImageBytes {
   mimeType: string;
 }
 
+const COVER_PATH_PROPERTIES = ['wechat_cover', 'x_cover'] as const;
+
+export interface CoverPathSyncResult {
+  notesUpdated: number;
+  propertiesUpdated: number;
+}
+
+interface CoverPathSyncControllerOptions {
+  app: App;
+  onUpdated?: (result: CoverPathSyncResult) => void;
+  onError?: (error: unknown) => void;
+}
+
 export class GeneratedImageDropError extends Error {
   constructor(message: string, readonly attachmentPath: string | null = null) {
     super(message);
@@ -107,6 +120,149 @@ export class GeneratedImageDropController {
       this.options.onError?.(error);
     });
     return true;
+  }
+
+  async shutdown(): Promise<void> {
+    this.accepting = false;
+    await this.tail;
+  }
+}
+
+interface ParsedCoverReference {
+  target: string;
+  start: number;
+  end: number;
+}
+
+function parsedCoverReference(value: string): ParsedCoverReference | null {
+  const leadingWhitespace = value.length - value.trimStart().length;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const wiki = /^!?\[\[([^\]|]+)(?:\|[^\]]+)?\]\]$/.exec(trimmed);
+  if (wiki) {
+    const start = leadingWhitespace + trimmed.indexOf(wiki[1]);
+    return { target: wiki[1], start, end: start + wiki[1].length };
+  }
+  const markdown = /^!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+[^)]*)?\)$/.exec(trimmed);
+  if (markdown) {
+    const target = markdown[1] ?? markdown[2];
+    const start = leadingWhitespace + trimmed.indexOf(target);
+    return { target, start, end: start + target.length };
+  }
+  return {
+    target: trimmed,
+    start: leadingWhitespace,
+    end: leadingWhitespace + trimmed.length,
+  };
+}
+
+function normalizedCoverPath(value: string): string {
+  let decoded = value.trim().replace(/\\/g, '/');
+  try {
+    decoded = decodeURIComponent(decoded);
+  } catch {
+    // Keep the literal path; Obsidian accepts both encoded and plain spaces.
+  }
+  return path.posix.normalize(decoded).replace(/^\.\//, '');
+}
+
+/**
+ * Rewrites a cover property after Obsidian (or an attachment manager) moves
+ * the referenced file. Generated covers are stored as Vault-absolute paths,
+ * while hand-written properties may use note-relative paths or wikilinks.
+ */
+export function rewriteRenamedCoverReference(
+  value: unknown,
+  notePath: string,
+  oldPath: string,
+  newPath: string,
+): string | null {
+  if (typeof value !== 'string') return null;
+  const parsed = parsedCoverReference(value);
+  if (!parsed || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(parsed.target)) return null;
+  const normalizedOldPath = normalizedCoverPath(oldPath);
+  const normalizedNewPath = normalizedCoverPath(newPath);
+  const normalizedTarget = normalizedCoverPath(parsed.target);
+  const noteDirectory = path.posix.dirname(notePath);
+  const oldRelativePath = normalizedCoverPath(path.posix.relative(noteDirectory, normalizedOldPath));
+  const targetIsVaultPath = normalizedTarget === normalizedOldPath;
+  const targetIsRelativePath = normalizedTarget === oldRelativePath;
+  if (!targetIsVaultPath && !targetIsRelativePath) return null;
+  const replacement = targetIsVaultPath
+    ? normalizedNewPath
+    : path.posix.relative(noteDirectory, normalizedNewPath) || path.posix.basename(normalizedNewPath);
+  const displayedReplacement = parsed.target.startsWith('./') && !replacement.startsWith('.')
+    ? `./${replacement}`
+    : replacement;
+  return `${value.slice(0, parsed.start)}${displayedReplacement}${value.slice(parsed.end)}`;
+}
+
+/**
+ * Updates both publishing cover properties wherever the renamed attachment is
+ * referenced. The cached frontmatter is only a read filter; the callback
+ * re-checks the live value so concurrent renames cannot overwrite newer edits.
+ */
+export async function syncRenamedCoverReferences(
+  app: App,
+  oldPath: string,
+  newPath: string,
+): Promise<CoverPathSyncResult> {
+  if (normalizedCoverPath(oldPath) === normalizedCoverPath(newPath)) {
+    return { notesUpdated: 0, propertiesUpdated: 0 };
+  }
+  let notesUpdated = 0;
+  let propertiesUpdated = 0;
+  for (const note of app.vault.getMarkdownFiles()) {
+    const cached = app.metadataCache.getFileCache(note)?.frontmatter;
+    const couldReferenceRenamedFile = COVER_PATH_PROPERTIES.some(property => (
+      rewriteRenamedCoverReference(cached?.[property], note.path, oldPath, newPath) !== null
+    ));
+    if (!couldReferenceRenamedFile) continue;
+    let updatedInNote = 0;
+    await app.fileManager.processFrontMatter(note, frontmatter => {
+      const metadata = frontmatter as Record<string, unknown>;
+      for (const property of COVER_PATH_PROPERTIES) {
+        const rewritten = rewriteRenamedCoverReference(
+          metadata[property],
+          note.path,
+          oldPath,
+          newPath,
+        );
+        if (rewritten === null || rewritten === metadata[property]) continue;
+        metadata[property] = rewritten;
+        updatedInNote += 1;
+      }
+    });
+    if (updatedInNote > 0) {
+      notesUpdated += 1;
+      propertiesUpdated += updatedInNote;
+    }
+  }
+  return { notesUpdated, propertiesUpdated };
+}
+
+/** Serializes rapid attachment rename events so two cover updates cannot race. */
+export class CoverPathSyncController {
+  private tail: Promise<void> = Promise.resolve();
+  private accepting = true;
+
+  constructor(private readonly options: CoverPathSyncControllerOptions) {}
+
+  enqueue(oldPath: string, newPath: string): Promise<CoverPathSyncResult> {
+    if (!this.accepting) return Promise.resolve({ notesUpdated: 0, propertiesUpdated: 0 });
+    const operation = this.tail.then(
+      () => syncRenamedCoverReferences(this.options.app, oldPath, newPath),
+      () => syncRenamedCoverReferences(this.options.app, oldPath, newPath),
+    );
+    this.tail = operation.then(
+      result => {
+        if (result.propertiesUpdated > 0) this.options.onUpdated?.(result);
+      },
+      error => {
+        this.options.onError?.(error);
+      },
+    );
+    return operation;
   }
 
   async shutdown(): Promise<void> {

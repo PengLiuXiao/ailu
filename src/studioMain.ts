@@ -63,6 +63,7 @@ import { AiluSettingTab, type SettingsTabId } from './ui/settingsTab';
 import { shouldRenderToolEvent } from './ui/toolEventVisibility';
 import { createAiluBrandMark } from './ui/ailuBrandMark';
 import {
+  CoverPathSyncController,
   GeneratedImageDropController,
   GeneratedImageDropError,
 } from './ui/generatedImageDrag';
@@ -116,6 +117,7 @@ export default class AiluPlugin extends Plugin {
   private memoryRuntimeGate!: AiluMemoryRuntimeGateLike;
   private memoryRuntimeDiagnostic = '';
   private generatedImageDropController: GeneratedImageDropController | null = null;
+  private coverPathSyncController: CoverPathSyncController | null = null;
   private canonicalSettingsSnapshot: { path: string; raw: string | null; sha256: string } | null = null;
   private settingsPersistenceAllowed = false;
   private homeWriterAvailable = false;
@@ -452,6 +454,19 @@ export default class AiluPlugin extends Plugin {
       new Notice(`发现 ${chatRecovery.sessionConflicts.length} 个重复会话关系；相关对话已禁止自动续接。`);
     }
     this.larkCliService = new LarkCliService();
+    this.coverPathSyncController = new CoverPathSyncController({
+      app: this.app,
+      onError: error => {
+        console.error('Ailu could not synchronize a renamed cover path.', error);
+        new Notice('封面图片已移动，但文章属性未能自动更新；请刷新草稿并检查封面。');
+      },
+    });
+    this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
+      if (!(file instanceof TFile) || !['gif', 'jpeg', 'jpg', 'png', 'webp'].includes(
+        file.extension.toLowerCase(),
+      )) return;
+      void this.coverPathSyncController?.enqueue(oldPath, file.path);
+    }));
     this.generatedImageDropController = new GeneratedImageDropController({
       app: this.app,
       onSuccess: result => {
@@ -591,6 +606,7 @@ export default class AiluPlugin extends Plugin {
           coordinatorShutdown,
           this.memoryWriteService?.shutdown(),
           this.generatedImageDropController?.shutdown(),
+          this.coverPathSyncController?.shutdown(),
           this.xCookieMutations.shutdown(),
           this.xArticleUploadTasks.shutdown(),
         ]);
