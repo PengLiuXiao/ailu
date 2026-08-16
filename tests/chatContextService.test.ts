@@ -305,9 +305,10 @@ describe('ChatContextService native-session handoff', () => {
     });
 
     expect(prepared.mode).toBe('checkpoint-handoff');
-    expect(store.commitCalls).toHaveLength(1);
-    expect(store.commitCalls[0]?.throughMessageSequence).toBe(8);
-    expect(store.commitCalls[0]?.summary.decisions).toContain('决定长期保留这个结论。');
+    expect(store.commitCalls).toHaveLength(0);
+    expect(prepared.contextCheckpointDraft?.throughMessageSequence).toBe(8);
+    expect(prepared.contextCheckpointDraft?.summary.decisions)
+      .toContain('决定长期保留这个结论。');
   });
 
   it('keeps a normal resume bounded and leaves the checkpoint store untouched', async () => {
@@ -412,8 +413,8 @@ describe('ChatContextService checkpoints', () => {
     });
 
     expect(prepared.mode).toBe('checkpoint-handoff');
-    expect(store.commitCalls).toHaveLength(1);
-    const draft = store.commitCalls[0];
+    expect(store.commitCalls).toHaveLength(0);
+    const draft = prepared.contextCheckpointDraft;
     expect(draft?.previousCheckpointId).toBe('checkpoint-old');
     expect(draft?.throughMessageSequence).toBe(8);
     expect(draft?.throughMessageId).toBe('turn-4-assistant');
@@ -466,7 +467,8 @@ describe('ChatContextService checkpoints', () => {
     expect(prepared.mode).toBe('checkpoint-handoff');
     expect(store.windowCalls).toBe(1);
     expect(store.fullCalls).toBe(1);
-    expect(store.commitCalls).toHaveLength(1);
+    expect(store.commitCalls).toHaveLength(0);
+    expect(prepared.contextCheckpointDraft).toBeDefined();
     expect(store.conversation.messages).toHaveLength(120);
   });
 
@@ -494,9 +496,9 @@ describe('ChatContextService checkpoints', () => {
 
     expect(prepared.mode).toBe('checkpoint-handoff');
     expect(store.fullCalls).toBe(0);
-    expect(store.commitCalls[0]?.previousCheckpointId).toBe('checkpoint-old');
-    expect(store.commitCalls[0]?.throughMessageSequence).toBe(988);
-    expect(store.commitCalls[0]?.throughMessageId).toBe('turn-494-assistant');
+    expect(prepared.contextCheckpointDraft?.previousCheckpointId).toBe('checkpoint-old');
+    expect(prepared.contextCheckpointDraft?.throughMessageSequence).toBe(988);
+    expect(prepared.contextCheckpointDraft?.throughMessageId).toBe('turn-494-assistant');
     const payload = readHandoff(prepared.effectivePrompt);
     expect(payload.recentCompletedTurns).toHaveLength(6);
     expect(JSON.stringify(payload)).toContain('"sequence":989');
@@ -521,7 +523,8 @@ describe('ChatContextService checkpoints', () => {
     expect(prepared.mode).toBe('checkpoint-handoff');
     const rawTail = readHandoff(prepared.effectivePrompt).recentCompletedTurns;
     expect(rawTail.length).toBeLessThan(6);
-    expect(store.commitCalls).toHaveLength(1);
+    expect(store.commitCalls).toHaveLength(0);
+    expect(prepared.contextCheckpointDraft).toBeDefined();
   });
 
   it('fails closed when even a zero-tail checkpoint cannot fit the current request', async () => {
@@ -537,24 +540,24 @@ describe('ChatContextService checkpoints', () => {
     expect(store.commitCalls).toHaveLength(0);
   });
 
-  it('does not let a checkpoint race fall through to runtime execution', async () => {
+  it('prepares a revision-bound checkpoint without mutating canonical storage', async () => {
     const conversation = conversationFrom(Array.from({ length: 8 }, (_, index) => ({
       user: `消息 ${index + 1}`,
       assistant: `回答 ${index + 1}`,
     })));
     const store = new FakeContextStore(conversation);
-    store.commitError = new Error('revision conflict');
-    let runtimeReached = false;
-
-    await expect(service(store, { checkpointTurnLimit: 8 }).prepare({
+    const prepared = await service(store, { checkpointTurnLimit: 8 }).prepare({
       conversationId: conversation.id,
       targetAgentId: 'codex',
       currentPrompt: '继续。',
-    }).then(() => {
-      runtimeReached = true;
-    })).rejects.toThrow('revision conflict');
+    });
 
-    expect(runtimeReached).toBe(false);
+    expect(prepared.contextCheckpointDraft).toMatchObject({
+      id: 'checkpoint-new',
+      sourceRevision: conversation.revision,
+    });
+    expect(store.commitCalls).toHaveLength(0);
+    expect(store.conversation.revision).toBe(conversation.revision);
   });
 
   it('keeps provider metadata, errors, secrets, and absolute paths out of handoff material', async () => {

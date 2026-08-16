@@ -435,6 +435,41 @@ describe('ChatRunCoordinator', () => {
     await handle.completion;
   });
 
+  test('forwards a planned context checkpoint through the durable start barrier', async () => {
+    const runtime = new FakeRuntime();
+    const persistence = new FakePersistence();
+    const coordinator = new ChatRunCoordinator(persistence.dependencies(runtime));
+    const next = submission('atomic-context-lane', 'atomic-context-run');
+    next.contextCheckpointDraft = {
+      version: 1,
+      id: 'ctx-atomic',
+      createdAt: 10,
+      sourceRevision: 7,
+      throughMessageSequence: 2,
+      throughMessageId: 'older-assistant',
+      projectionVersion: 1,
+      summary: {
+        facts: ['已完成旧任务'],
+        decisions: [],
+        userPreferences: [],
+        constraints: [],
+        openLoops: [],
+        filesMentioned: [],
+        lastIntent: '继续',
+      },
+      createdBy: 'local',
+    };
+    next.expectedRevision = 7;
+
+    const handle = await coordinator.submit(next);
+
+    expect(persistence.startCalls[0]?.contextCheckpointDraft).toEqual(next.contextCheckpointDraft);
+    expect(persistence.startCalls[0]?.expectedRevision).toBe(7);
+    await waitForRuntime(runtime, 'atomic-context-run');
+    runtime.finish('atomic-context-run', { type: 'done' });
+    await handle.completion;
+  });
+
   test('crosses persistStart before submit resolves and invokes every stage exactly once', async () => {
     const runtime = new FakeRuntime();
     const persistence = new FakePersistence();
@@ -2182,10 +2217,12 @@ describe('ChatRunCoordinator', () => {
     expect(persistence.loadCalls).toHaveLength(0);
   });
 
-  test('never prunes a failed admission whose messages exist only in memory', async () => {
+  test('keeps failed durable admission caller-owned without manufacturing backpressure', async () => {
     const runtime = new FakeRuntime();
     const persistence = new FakePersistence();
     const dependencies = persistence.dependencies(runtime);
+    const diagnostics: Array<{ stage: string; failureKind: string }> = [];
+    dependencies.onPersistenceFailure = input => diagnostics.push(input);
     dependencies.persistStart = async input => {
       persistence.startCalls.push(clone(input));
       throw new Error(`start failed for ${input.runId}`);
@@ -2199,41 +2236,34 @@ describe('ChatRunCoordinator', () => {
     } catch (error) {
       sameLaneError = error;
     }
-    expect(sameLaneError).toBeInstanceOf(ChatPersistenceBackpressureError);
-    expect(sameLaneError).toMatchObject({ scope: 'conversation' });
-    expect((sameLaneError as Error).message).toContain('内容仅保留在当前界面');
+    expect(sameLaneError).toBeInstanceOf(Error);
+    expect((sameLaneError as Error).message).toBe('start failed for unsafe-run-retry');
     let overflowError: unknown;
     try {
       await coordinator.submit(submission('unsafe-overflow', 'unsafe-run-overflow'));
     } catch (error) {
       overflowError = error;
     }
-    expect(overflowError).toBeInstanceOf(ChatPersistenceBackpressureError);
-    expect(overflowError).toMatchObject({
-      scope: 'global',
-      retainedUnpersistedConversations: 1,
-    });
-    expect((overflowError as Error).message).toContain('请先复制这些内容');
-    expect(persistence.startCalls).toHaveLength(1);
+    expect(overflowError).toBeInstanceOf(Error);
+    expect((overflowError as Error).message).toBe('start failed for unsafe-run-overflow');
+    expect(persistence.startCalls).toHaveLength(3);
+    expect(diagnostics).toEqual([
+      { stage: 'start', failureKind: 'Error' },
+      { stage: 'start', failureKind: 'Error' },
+      { stage: 'start', failureKind: 'Error' },
+    ]);
+    expect(() => coordinator.assertContextPreparationAllowed('unsafe-0')).not.toThrow();
 
     const report = coordinator.pruneIdleLanes(0);
-    expect(report.prunedConversationIds).toHaveLength(0);
+    expect(report.prunedConversationIds).toContain('unsafe-0');
     const loadsBeforeSnapshot = persistence.loadCalls.filter(id => id === 'unsafe-0').length;
     const snapshot = await coordinator.snapshotConversation('unsafe-0');
-    expect(snapshot.runs[0]).toMatchObject({
-      runId: 'unsafe-run-0',
-      startPersisted: false,
-      finalPersisted: false,
-      phase: 'failed',
-    });
-    expect(snapshot.messages.map(message => message.id)).toEqual([
-      'unsafe-run-0-user',
-      'unsafe-run-0-assistant',
-    ]);
-    expect(persistence.loadCalls.filter(id => id === 'unsafe-0')).toHaveLength(loadsBeforeSnapshot);
+    expect(snapshot.runs).toEqual([]);
+    expect(snapshot.messages).toEqual([]);
+    expect(persistence.loadCalls.filter(id => id === 'unsafe-0')).toHaveLength(loadsBeforeSnapshot + 1);
   });
 
-  test('opens the circuit on the first of twenty concurrent start failures', async () => {
+  test('serializes twenty concurrent start failures without starting Runtime or opening a circuit', async () => {
     const runtime = new FakeRuntime();
     const persistence = new FakePersistence();
     const dependencies = persistence.dependencies(runtime);
@@ -2250,28 +2280,18 @@ describe('ChatRunCoordinator', () => {
     expect(settled.every(result => result.status === 'rejected')).toBe(true);
     expect(settled.filter(result => (
       result.status === 'rejected' && result.reason instanceof ChatPersistenceBackpressureError
-    ))).toHaveLength(19);
-    expect(persistence.startCalls).toHaveLength(1);
+    ))).toHaveLength(0);
+    expect(persistence.startCalls).toHaveLength(20);
     expect(runtime.invocations).toHaveLength(0);
-    const retainedStart = persistence.startCalls[0];
-    if (!retainedStart) throw new Error('Expected one retained failed start.');
-    const retainedConversationId = retainedStart.conversationId;
     for (let index = 0; index < 20; index += 1) {
       const conversationId = `concurrent-failure-${index}`;
       const snapshot = await coordinator.snapshotConversation(conversationId);
-      if (conversationId === retainedConversationId) {
-        expect(snapshot.messages).toHaveLength(2);
-        expect(snapshot.runs).toEqual([
-          expect.objectContaining({ startPersisted: false, finalPersisted: false }),
-        ]);
-      } else {
-        expect(snapshot.messages).toEqual([]);
-        expect(snapshot.runs).toEqual([]);
-      }
+      expect(snapshot.messages).toEqual([]);
+      expect(snapshot.runs).toEqual([]);
     }
   });
 
-  test('rejects sixty prequeued same-lane starts after the first persistence failure', async () => {
+  test('keeps sixty prequeued same-lane start failures caller-owned', async () => {
     const runtime = new FakeRuntime();
     const persistence = new FakePersistence();
     const dependencies = persistence.dependencies(runtime);
@@ -2287,17 +2307,12 @@ describe('ChatRunCoordinator', () => {
     expect(settled.filter(result => result.status === 'rejected')).toHaveLength(60);
     expect(settled.filter(result => (
       result.status === 'rejected' && result.reason instanceof ChatPersistenceBackpressureError
-    ))).toHaveLength(59);
-    expect(persistence.startCalls).toHaveLength(1);
+    ))).toHaveLength(0);
+    expect(persistence.startCalls).toHaveLength(60);
     expect(runtime.invocations).toHaveLength(0);
     const snapshot = await coordinator.snapshotConversation('same-lane-failure');
-    expect(snapshot.messages.map(message => message.id)).toEqual([
-      'same-lane-failure-run-0-user',
-      'same-lane-failure-run-0-assistant',
-    ]);
-    expect(snapshot.runs).toEqual([
-      expect.objectContaining({ runId: 'same-lane-failure-run-0', finalPersisted: false }),
-    ]);
+    expect(snapshot.messages).toEqual([]);
+    expect(snapshot.runs).toEqual([]);
   });
 
   test.each([false, true])(
@@ -2675,6 +2690,8 @@ describe('ChatRunCoordinator', () => {
 
     await expect(coordinator.submit(submission('unsafe-final-overflow', 'unsafe-final-overflow-run')))
       .rejects.toBeInstanceOf(ChatPersistenceBackpressureError);
+    expect(() => coordinator.assertContextPreparationAllowed('unsafe-final-overflow'))
+      .toThrow(ChatPersistenceBackpressureError);
     expect(runtime.invocations).toHaveLength(1);
     expect(persistence.finalCalls).toHaveLength(1);
     expect(coordinator.pruneIdleLanes(0).prunedConversationIds).toEqual([]);
@@ -2781,7 +2798,7 @@ describe('ChatRunCoordinator', () => {
     expect(persistence.finalCalls).toHaveLength(0);
     expect(runtime.invocations).toHaveLength(0);
     const terminal = await coordinator.snapshotConversation('corrupt');
-    expect(terminal.runs[0]).toMatchObject({ phase: 'failed', finalPersisted: false });
+    expect(terminal.runs).toEqual([]);
     watch.close();
   });
 

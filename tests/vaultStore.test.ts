@@ -1187,6 +1187,40 @@ while True:
 });
 
 describe('ChatStoreLease physical fencing', () => {
+  test('takes over an unexpired persisted lease once the exclusive OS fence is free', async () => {
+    const vaultRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ailu-chat-lease-restart-'));
+    const adapter = new FilesystemDataAdapter(vaultRoot);
+    await fs.mkdir(path.join(vaultRoot, STORAGE_IDS.vaultDirectoryName), { recursive: true });
+    await fs.writeFile(path.join(vaultRoot, CHAT_STORE_LEASE_PATH), `${JSON.stringify({
+      version: 1,
+      state: 'held',
+      instanceId: 'dead-obsidian-instance',
+      pid: 41001,
+      leaseId: 'stale-json-lease',
+      acquiredAt: 19_000,
+      heartbeatAt: 19_900,
+      expiresAt: 50_000,
+    })}\n`, 'utf8');
+    const restarted = new ChatStoreLease(adapter as unknown as DataAdapter, {
+      instanceId: 'restarted-obsidian-instance',
+      pid: 42002,
+      ttlMs: 5_000,
+      now: () => 20_000,
+      vaultBasePath: vaultRoot,
+    });
+
+    try {
+      await expect(restarted.acquire()).resolves.toMatchObject({
+        mode: 'writer',
+        ownerInstanceId: 'restarted-obsidian-instance',
+        ownerPid: 42002,
+        expiresAt: 25_000,
+      });
+    } finally {
+      await restarted.release();
+    }
+  });
+
   test('keeps the same writer usable after a wall-clock sleep gap while its OS lock survives', async () => {
     const vaultRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ailu-chat-lease-sleep-'));
     const adapter = new FilesystemDataAdapter(vaultRoot);

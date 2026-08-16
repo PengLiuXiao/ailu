@@ -856,6 +856,8 @@ type JournalEvent =
     userMessage: ChatMessage;
     assistantMessage: ChatMessage;
     turn: StoredConversationTurn;
+    /** Present only when checkpoint creation and turn admission were atomic. */
+    contextCheckpoint?: ConversationContextCheckpoint;
   }
   | { type: 'appendMessage'; message: ChatMessage; title: string; updatedAt: number }
   | { type: 'patchMessage'; message: ChatMessage; updatedAt: number }
@@ -1620,6 +1622,11 @@ export class ConversationRepositoryV2 {
         { requireNonterminalMessages: false },
       );
       let preallocated: Allocation | null = null;
+      if (state && input.contextCheckpointDraft) {
+        // Checkpoint hashes bind the complete canonical prefix, not the
+        // bounded mutation tail.
+        state = await this.loadConversationState(context, input.conversationId);
+      }
       let existingTurn = state?.conversation.turns.find(turn => turn.id === turnId);
       if (state && existingTurn) {
         const replayUserMessageId = existingTurn.userMessageId;
@@ -1657,6 +1664,9 @@ export class ConversationRepositoryV2 {
         );
       }
       assertExpectedRevision(state.conversation, input.expectedRevision);
+      const contextCheckpoint = input.contextCheckpointDraft
+        ? materializeAtomicContextCheckpoint(state.conversation, input.contextCheckpointDraft)
+        : undefined;
       for (const message of [input.userMessage, input.assistantMessage]) {
         if (state.conversation.messages.some(item => item.id === message.id)) {
           throw new ConversationTurnStateError(`Message id ${message.id} is already in use.`);
@@ -1682,6 +1692,7 @@ export class ConversationRepositoryV2 {
       const next = cloneJson(state.conversation);
       next.messages.push(cloneJson(input.userMessage), cloneJson(input.assistantMessage));
       next.turns.push(turn);
+      if (contextCheckpoint) next.contextCheckpoint = cloneJson(contextCheckpoint);
       next.agentId = input.agentId;
       next.updatedAt = now;
       next.revision = allocation.revision;
@@ -1697,6 +1708,7 @@ export class ConversationRepositoryV2 {
         userMessage: cloneJson(input.userMessage),
         assistantMessage: cloneJson(input.assistantMessage),
         turn: cloneJson(turn),
+        ...(contextCheckpoint ? { contextCheckpoint: cloneJson(contextCheckpoint) } : {}),
       });
       return turnResult(true, next, turn);
     });
@@ -3382,6 +3394,14 @@ export class ConversationRepositoryV2 {
       const event = record.event;
       switch (event.type) {
         case 'beginTurn':
+          if (event.contextCheckpoint) {
+            if (event.contextCheckpoint.sourceRevision !== conversation.revision) {
+              throw new ConversationStoreCorruptError(
+                'Atomic context checkpoint source revision does not match its journal predecessor.',
+              );
+            }
+            conversation.contextCheckpoint = cloneJson(event.contextCheckpoint);
+          }
           conversation.title = event.title;
           conversation.agentId = event.agentId;
           conversation.createdAt = event.createdAt;
@@ -3578,6 +3598,14 @@ export class ConversationRepositoryV2 {
       const event = record.event;
       switch (event.type) {
         case 'beginTurn':
+          if (event.contextCheckpoint) {
+            if (event.contextCheckpoint.sourceRevision !== header.revision) {
+              throw new ConversationStoreCorruptError(
+                'Atomic context checkpoint source revision does not match its journal predecessor.',
+              );
+            }
+            header.contextCheckpoint = cloneJson(event.contextCheckpoint);
+          }
           header.title = event.title;
           header.agentId = event.agentId;
           header.updatedAt = event.updatedAt;
@@ -4852,6 +4880,7 @@ function validateJournalEvent(
         'userMessage',
         'assistantMessage',
         'turn',
+        'contextCheckpoint',
       ], source);
       requireBoundedUtf8String(event.title, `${source} title`, 64 * 1024);
       requireAgentId(event.agentId, `${source} agentId`);
@@ -4869,6 +4898,16 @@ function validateJournalEvent(
         || turn.userMessageId !== userMessage.id
         || turn.assistantMessageId !== assistantMessage.id) {
         throw corrupt(`${source} message/turn binding is invalid.`);
+      }
+      if (event.contextCheckpoint !== undefined) {
+        const checkpoint = normalizeContextCheckpoint(
+          event.contextCheckpoint,
+          `${source} contextCheckpoint`,
+        );
+        if (!jsonEqual(checkpoint, event.contextCheckpoint)
+          || checkpoint.sourceRevision >= record.revision) {
+          throw corrupt(`${source} contextCheckpoint is invalid.`);
+        }
       }
       break;
     }
@@ -5025,6 +5064,14 @@ function applyJournalRecord(
   const event = record.event;
   switch (event.type) {
     case 'beginTurn':
+      if (event.contextCheckpoint) {
+        if (event.contextCheckpoint.sourceRevision !== conversation.revision) {
+          throw new ConversationStoreCorruptError(
+            'Atomic context checkpoint source revision does not match its journal predecessor.',
+          );
+        }
+        conversation.contextCheckpoint = cloneJson(event.contextCheckpoint);
+      }
       conversation.title = event.title;
       conversation.agentId = event.agentId;
       conversation.createdAt = event.createdAt;
@@ -5323,6 +5370,61 @@ function verifyContextCheckpointBinding(
   }
 }
 
+function materializeAtomicContextCheckpoint(
+  conversation: VersionedStoredConversation,
+  value: ConversationContextCheckpointDraft,
+): ConversationContextCheckpoint {
+  const draft = normalizeContextCheckpointDraft(value, 'beginTurn contextCheckpointDraft');
+  if (conversation.turns.some(turn => !isTerminalTurnState(turn.state))) {
+    throw new ConversationTurnStateError(
+      `Conversation ${conversation.id} cannot checkpoint while a turn is unfinished.`,
+    );
+  }
+  if (draft.sourceRevision !== conversation.revision) {
+    throw new ConversationRevisionConflictError(
+      conversation.id,
+      draft.sourceRevision,
+      conversation.revision,
+    );
+  }
+  const checkpoint = materializeAtomicContextCheckpointReplay(conversation, draft);
+  const existing = conversation.contextCheckpoint;
+  if (existing) {
+    if (checkpoint.previousCheckpointId !== existing.id) {
+      throw new ConversationTurnStateError(
+        `Context checkpoint ${checkpoint.id} does not extend ${existing.id}.`,
+      );
+    }
+    if (checkpoint.throughMessageSequence <= existing.throughMessageSequence) {
+      throw new ConversationTurnStateError(
+        'A context checkpoint must advance beyond the previous message boundary.',
+      );
+    }
+  } else if (checkpoint.previousCheckpointId !== undefined) {
+    throw new ConversationTurnStateError(
+      'The first context checkpoint cannot reference a previous checkpoint.',
+    );
+  }
+  return checkpoint;
+}
+
+function materializeAtomicContextCheckpointReplay(
+  conversation: VersionedStoredConversation,
+  value: ConversationContextCheckpointDraft,
+): ConversationContextCheckpoint {
+  const draft = normalizeContextCheckpointDraft(value, 'beginTurn contextCheckpointDraft');
+  const checkpoint: ConversationContextCheckpoint = {
+    ...cloneJson(draft),
+    prefixSha256: hashMessagePrefix(
+      conversation.messages,
+      draft.throughMessageSequence,
+      draft.throughMessageId,
+    ),
+  };
+  assertContextCheckpointBoundary(conversation, checkpoint);
+  return checkpoint;
+}
+
 function validateBeginTurnInput(input: BeginTurnInput): void {
   requireNonEmptyString(input.conversationId, 'conversation id');
   requireAgentId(input.agentId, 'turn agentId');
@@ -5336,6 +5438,9 @@ function validateBeginTurnInput(input: BeginTurnInput): void {
     throw new ConversationTurnStateError('beginTurn message ids must be different.');
   }
   normalizeRuntimeSnapshot(input.runtime, 'turn runtime snapshot');
+  if (input.contextCheckpointDraft !== undefined) {
+    normalizeContextCheckpointDraft(input.contextCheckpointDraft, 'beginTurn contextCheckpointDraft');
+  }
 }
 
 function assertBeginTurnReplay(
@@ -5352,6 +5457,15 @@ function assertBeginTurnReplay(
     || !jsonEqual(user, input.userMessage)
     || !jsonEqual(turn.runtime, normalizeRuntimeSnapshot(input.runtime, 'turn runtime snapshot'))) {
     throw new ConversationTurnStateError(`Turn id ${turn.id} is already in use by different input.`);
+  }
+  if (input.contextCheckpointDraft) {
+    const expected = materializeAtomicContextCheckpointReplay(
+      conversation,
+      input.contextCheckpointDraft,
+    );
+    if (!conversation.contextCheckpoint || !jsonEqual(conversation.contextCheckpoint, expected)) {
+      throw new ConversationTurnStateError(`Turn id ${turn.id} checkpoint is different from its replay.`);
+    }
   }
 }
 

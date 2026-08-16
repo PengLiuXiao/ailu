@@ -3,6 +3,7 @@ import type {
   ChatArtifact,
   ChatMessage,
   ChatTurnRequest,
+  ConversationContextCheckpointDraft,
   RuntimeTurnEvent,
   StoredConversation,
   ToolCallEvent,
@@ -45,6 +46,10 @@ export interface ChatRunSubmission {
   assistantMessage: ChatMessage;
   /** Optional immediate seed for a view before the persisted snapshot is loaded. */
   conversationSnapshot?: StoredConversation | null;
+  /** Committed by persistStart in the same durable mutation as this turn. */
+  contextCheckpointDraft?: ConversationContextCheckpointDraft;
+  /** Rejects a prompt prepared from stale canonical conversation state. */
+  expectedRevision?: number;
   /** Runtime configuration ownership written beside a newly observed session. */
   sessionConfigKey?: string;
   cancellationMessage?: string;
@@ -64,6 +69,8 @@ export interface ChatRunStartPersistence {
   runtimeRequest: FrozenChatTurnRequest;
   userMessage: ChatMessage;
   assistantMessage: ChatMessage;
+  contextCheckpointDraft?: ConversationContextCheckpointDraft;
+  expectedRevision?: number;
 }
 
 export interface ChatRunActivationPersistence {
@@ -188,6 +195,11 @@ export interface ChatRunCoordinatorDependencies {
     detail: string | undefined,
     submission: FrozenChatRunSubmission,
   ) => string;
+  /** Privacy-safe local diagnostic hook; prompts and message text are excluded. */
+  onPersistenceFailure?: (input: {
+    stage: 'load' | 'start' | 'activation' | 'checkpoint' | 'session' | 'cancellation' | 'final';
+    failureKind: string;
+  }) => void;
   loadSessionOwnerships?: () => Promise<readonly ChatSessionOwnership[]>;
   /** Constant-time durable lookup; startup deliberately does not enumerate owners. */
   loadSessionOwner?: (sessionId: string) => Promise<ChatSessionOwnership | null>;
@@ -554,6 +566,19 @@ export class ChatRunCoordinator {
     return [...lane.runs.values()].some(run => !isTerminalPhase(run.phase));
   }
 
+  /**
+   * Read-only fence used before context projection. submit() repeats this
+   * check, so a prior post-start persistence failure cannot be bypassed by a
+   * checkpoint or another preparation side effect.
+   */
+  assertContextPreparationAllowed(conversationId: string): void {
+    if (this.shuttingDown) throw new ChatCoordinatorShutdownError();
+    const normalized = conversationId.trim();
+    if (!normalized) throw new Error('conversationId is required.');
+    const backpressure = this.persistenceBackpressureFor(normalized);
+    if (backpressure) throw backpressure;
+  }
+
   getSessionOwner(sessionId: string): ChatSessionOwnership | null {
     const owner = this.sessionOwners.get(sessionId);
     return owner ? { ...owner } : null;
@@ -658,7 +683,7 @@ export class ChatRunCoordinator {
       return;
     }
     if (lane.loadError) {
-      this.openPersistenceCircuit(lane, run, lane.loadError);
+      this.notifyPersistenceFailure('load', lane.loadError);
       this.failAdmission(
         lane,
         run,
@@ -684,6 +709,10 @@ export class ChatRunCoordinator {
           runtimeRequest: run.submission.runtimeRequest,
           userMessage: cloneMessage(run.submission.userMessage),
           assistantMessage: cloneMessage(run.submission.assistantMessage),
+          contextCheckpointDraft: run.submission.contextCheckpointDraft
+            ? cloneContextCheckpointDraft(run.submission.contextCheckpointDraft)
+            : undefined,
+          expectedRevision: run.submission.expectedRevision,
         });
         run.startPersisted = true;
         run.activationPersisted = run.initialState === 'active';
@@ -706,7 +735,7 @@ export class ChatRunCoordinator {
           );
           return;
         }
-        this.openPersistenceCircuit(lane, run, error);
+        this.notifyPersistenceFailure('start', error);
         this.failAdmission(lane, run, error);
         return;
       }
@@ -733,7 +762,10 @@ export class ChatRunCoordinator {
     this.touchLane(lane);
     run.rejectStart(error);
     run.resolveCompletion(this.resultFor(run));
-    this.foldAndReleaseTerminalRun(lane, run);
+    // The durable start barrier was never crossed. The caller still owns the
+    // composer text and no Runtime output exists, so retaining a synthetic
+    // unsaved conversation would manufacture permanent backpressure.
+    lane.runs.delete(run.submission.runId);
   }
 
   private rejectBackpressuredAdmission(
@@ -833,7 +865,7 @@ export class ChatRunCoordinator {
             run.submission.assistantMessage,
             visibleError,
           );
-          this.recordPersistenceFailure(lane, run, error);
+          this.recordPersistenceFailure(lane, run, error, 'activation');
           await this.finalizeRun(lane, run, 'failed');
           return;
         }
@@ -848,7 +880,7 @@ export class ChatRunCoordinator {
       }
       if (!run.activationPersisted) {
         const error = new Error('Queued chat run did not cross its activation barrier.');
-        this.recordPersistenceFailure(lane, run, error);
+        this.recordPersistenceFailure(lane, run, error, 'activation');
         await this.finalizeRun(lane, run, 'failed');
         return;
       }
@@ -1379,7 +1411,7 @@ export class ChatRunCoordinator {
       if (persisted) this.acceptPersistedConversation(lane, persisted);
     } catch (error) {
       status = 'failed';
-      this.recordPersistenceFailure(lane, run, error);
+      this.recordPersistenceFailure(lane, run, error, 'final');
     }
 
     run.terminalStatus = status;
@@ -1429,7 +1461,7 @@ export class ChatRunCoordinator {
         run.cancellationRequestedPersisted = true;
         if (persisted) this.acceptPersistedConversation(lane, persisted);
       } catch (error) {
-        this.recordPersistenceFailure(lane, run, error);
+        this.recordPersistenceFailure(lane, run, error, 'cancellation');
       }
     }).catch(() => {
       // persistStart failed, so there is no durable turn to mark cancelRequested.
@@ -1456,8 +1488,9 @@ export class ChatRunCoordinator {
     lane: ConversationLane,
     run: RunRecord,
     error: unknown,
+    stage: 'activation' | 'cancellation' | 'final',
   ): void {
-    this.openPersistenceCircuit(lane, run, error);
+    this.openPersistenceCircuit(lane, run, error, stage);
     const detail = errorMessage(error);
     run.persistenceError = run.persistenceError
       ? `${run.persistenceError}\n${detail}`
@@ -1471,7 +1504,7 @@ export class ChatRunCoordinator {
     run: RunRecord,
     error: unknown,
   ): void {
-    this.openPersistenceCircuit(lane, run, error);
+    this.openPersistenceCircuit(lane, run, error, 'checkpoint');
     const detail = errorMessage(error);
     run.checkpointPersistenceError = run.checkpointPersistenceError
       ? `${run.checkpointPersistenceError}\n${detail}`
@@ -1485,7 +1518,7 @@ export class ChatRunCoordinator {
     run: RunRecord,
     error: unknown,
   ): void {
-    this.openPersistenceCircuit(lane, run, error);
+    this.openPersistenceCircuit(lane, run, error, 'session');
     run.sessionPersistenceError = errorMessage(error);
     run.finalPersisted = false;
     if (!isTerminalPhase(run.phase)) this.emitState(lane, run);
@@ -1862,6 +1895,10 @@ export class ChatRunCoordinator {
       runtimeRequest: freezeRuntimeRequest(submission.runtimeRequest),
       userMessage: cloneMessage(submission.userMessage),
       assistantMessage: cloneMessage(submission.assistantMessage),
+      contextCheckpointDraft: submission.contextCheckpointDraft
+        ? cloneContextCheckpointDraft(submission.contextCheckpointDraft)
+        : undefined,
+      expectedRevision: submission.expectedRevision,
       conversationSnapshot: submission.conversationSnapshot
         ? cloneConversation(submission.conversationSnapshot)
         : null,
@@ -1947,13 +1984,29 @@ export class ChatRunCoordinator {
     lane: ConversationLane,
     run: RunRecord,
     error: unknown,
+    stage: 'activation' | 'checkpoint' | 'session' | 'cancellation' | 'final',
   ): void {
+    this.notifyPersistenceFailure(stage, error);
     if (this.persistenceCircuit) return;
     this.persistenceCircuit = {
       conversationId: lane.conversationId,
       runId: run.submission.runId,
       detail: errorMessage(error),
     };
+  }
+
+  private notifyPersistenceFailure(
+    stage: 'load' | 'start' | 'activation' | 'checkpoint' | 'session' | 'cancellation' | 'final',
+    error: unknown,
+  ): void {
+    try {
+      this.deps.onPersistenceFailure?.({
+        stage,
+        failureKind: error instanceof Error && error.name ? error.name : typeof error,
+      });
+    } catch {
+      // Diagnostics must never alter the persistence failure boundary.
+    }
   }
 
   private clearSessionRegistryForConversation(conversationId: string): void {
@@ -2262,6 +2315,23 @@ function cloneConversation(conversation: StoredConversation): StoredConversation
 function cloneContextCheckpoint(
   checkpoint: NonNullable<StoredConversation['contextCheckpoint']>,
 ): NonNullable<StoredConversation['contextCheckpoint']> {
+  return {
+    ...checkpoint,
+    summary: {
+      ...checkpoint.summary,
+      facts: [...checkpoint.summary.facts],
+      decisions: [...checkpoint.summary.decisions],
+      userPreferences: [...checkpoint.summary.userPreferences],
+      constraints: [...checkpoint.summary.constraints],
+      openLoops: [...checkpoint.summary.openLoops],
+      filesMentioned: [...checkpoint.summary.filesMentioned],
+    },
+  };
+}
+
+function cloneContextCheckpointDraft(
+  checkpoint: ConversationContextCheckpointDraft,
+): ConversationContextCheckpointDraft {
   return {
     ...checkpoint,
     summary: {

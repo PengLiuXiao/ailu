@@ -1,6 +1,7 @@
 import type { DataAdapter } from 'obsidian';
 
 import {
+  ChatContextService,
   ChatRunCoordinator,
   type ChatRunCoordinatorDependencies,
   type ChatRunSubmission,
@@ -195,6 +196,8 @@ function coordinatorDependencies(
           fullAccess: input.runtimeRequest.fullAccess === true,
         },
         initialState: input.initialState,
+        contextCheckpointDraft: input.contextCheckpointDraft,
+        expectedRevision: input.expectedRevision,
       });
     },
     persistActivate: async input => {
@@ -311,6 +314,143 @@ async function waitForPrompts(runtime: HoldRuntime, prompts: readonly string[]):
 }
 
 describe('chat coordinator with the v2 VaultStore', () => {
+  test('atomically admits a Codex handoff checkpoint from completed Claude history', async () => {
+    const adapter = new IntegrationDataAdapter();
+    const store = new VaultStore(adapter as unknown as DataAdapter, {
+      instanceId: 'atomic-handoff-integration',
+      requireWriteLease: true,
+    });
+    expect((await store.acquireWriteLease({ startHeartbeat: false })).mode).toBe('writer');
+    await store.ensureV2Store({ quiescenceBarrier: async () => ({ activeRuns: 0 }) });
+    for (let index = 0; index < 8; index += 1) {
+      const turnId = `claude-history-${index}`;
+      await store.beginTurn({
+        conversationId: 'cross-agent-atomic',
+        turnId,
+        agentId: 'claude',
+        userMessage: {
+          ...chatMessage(`${turnId}-user`, 'user', `Claude prompt ${index}`),
+          agentId: 'claude',
+        },
+        assistantMessage: {
+          ...chatMessage(`${turnId}-assistant`, 'assistant', ''),
+          agentId: 'claude',
+        },
+        runtime: {
+          configSource: 'localCli',
+          model: 'claude-test',
+          planMode: false,
+          fullAccess: false,
+        },
+      });
+      await store.finalizeTurn({
+        conversationId: 'cross-agent-atomic',
+        turnId,
+        assistantPatch: { content: `Claude result ${index}` },
+      });
+    }
+    const before = await store.getConversation('cross-agent-atomic');
+    if (!before) throw new Error('Expected completed Claude history.');
+    const context = await new ChatContextService({
+      store,
+      checkpointTurnLimit: 8,
+      createCheckpointId: () => 'cross-agent-atomic-checkpoint',
+      now: () => 50_000,
+    }).prepare({
+      conversationId: before.id,
+      targetAgentId: 'codex',
+      currentPrompt: 'Codex continues from Claude.',
+    });
+    expect(context.mode).toBe('checkpoint-handoff');
+    expect(context.sourceRevision).toBe(before.revision);
+    expect(context.contextCheckpointDraft?.sourceRevision).toBe(before.revision);
+    expect((await store.getConversation(before.id))?.contextCheckpoint).toBeUndefined();
+
+    const runtime = new HoldRuntime();
+    const coordinator = new ChatRunCoordinator(coordinatorDependencies(store, runtime));
+    const next = submission(before.id, 'codex-atomic-turn');
+    next.contextCheckpointDraft = context.contextCheckpointDraft;
+    next.expectedRevision = context.sourceRevision;
+    next.runtimeRequest.prompt = context.effectivePrompt;
+    const handle = await coordinator.submit(next);
+    const admitted = await store.getConversation(before.id);
+    expect(admitted?.contextCheckpoint).toMatchObject({
+      id: 'cross-agent-atomic-checkpoint',
+      sourceRevision: before.revision,
+    });
+    expect(admitted?.turns.at(-1)).toMatchObject({
+      id: 'codex-atomic-turn',
+      agentId: 'codex',
+      state: 'active',
+    });
+    await waitForPrompts(runtime, [context.effectivePrompt]);
+    runtime.finish(context.effectivePrompt, { type: 'text', content: 'Codex continued safely.' }, { type: 'done' });
+    await expect(handle.completion).resolves.toMatchObject({ status: 'completed', finalPersisted: true });
+    await coordinator.shutdown();
+    await store.releaseWriteLease();
+  });
+
+  test('rejects a short cross-Agent handoff when canonical history changes after preparation', async () => {
+    const adapter = new IntegrationDataAdapter();
+    const store = new VaultStore(adapter as unknown as DataAdapter, {
+      instanceId: 'revision-bound-handoff-integration',
+      requireWriteLease: true,
+    });
+    expect((await store.acquireWriteLease({ startHeartbeat: false })).mode).toBe('writer');
+    await store.ensureV2Store({ quiescenceBarrier: async () => ({ activeRuns: 0 }) });
+    await store.beginTurn({
+      conversationId: 'revision-bound-handoff',
+      turnId: 'claude-source-turn',
+      agentId: 'claude',
+      userMessage: {
+        ...chatMessage('claude-source-user', 'user', 'Claude source prompt'),
+        agentId: 'claude',
+      },
+      assistantMessage: {
+        ...chatMessage('claude-source-assistant', 'assistant', ''),
+        agentId: 'claude',
+      },
+      runtime: {
+        configSource: 'localCli',
+        model: 'claude-test',
+        planMode: false,
+        fullAccess: false,
+      },
+    });
+    await store.finalizeTurn({
+      conversationId: 'revision-bound-handoff',
+      turnId: 'claude-source-turn',
+      assistantPatch: { content: 'Claude source result.' },
+    });
+    const context = await new ChatContextService({ store }).prepare({
+      conversationId: 'revision-bound-handoff',
+      targetAgentId: 'codex',
+      currentPrompt: 'Codex continues safely.',
+    });
+    expect(context.mode).toBe('fresh-handoff');
+    expect(typeof context.sourceRevision).toBe('number');
+    expect(context.contextCheckpointDraft).toBeUndefined();
+
+    await store.appendMessage(
+      'revision-bound-handoff',
+      chatMessage('intervening-durable-message', 'assistant', 'Another durable writer changed history.'),
+    );
+    const runtime = new HoldRuntime();
+    const coordinator = new ChatRunCoordinator(coordinatorDependencies(store, runtime));
+    const next = submission('revision-bound-handoff', 'stale-short-handoff');
+    next.runtimeRequest.prompt = context.effectivePrompt;
+    next.expectedRevision = context.sourceRevision;
+
+    await expect(coordinator.submit(next)).rejects.toThrow('revision');
+    expect(runtime.invocations).toHaveLength(0);
+    expect(() => coordinator.assertContextPreparationAllowed('revision-bound-handoff')).not.toThrow();
+    const after = await store.getConversation('revision-bound-handoff');
+    expect(after?.turns.some(turn => turn.id === 'stale-short-handoff')).toBe(false);
+    expect(after?.messages.some(message => message.id === 'stale-short-handoff-user')).toBe(false);
+    await coordinator.shutdown();
+    await store.releaseWriteLease();
+  });
+
   test('runs concurrent lanes, preserves FIFO/targeted stop/checkpoints, and recovers without replay', async () => {
     const adapter = new IntegrationDataAdapter();
     const store = new VaultStore(adapter as unknown as DataAdapter, {
