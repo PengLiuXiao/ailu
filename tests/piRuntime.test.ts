@@ -64,7 +64,12 @@ function writeFakePi(executablePath: string, options: FakePiOptions): void {
     `      fs.appendFileSync(${JSON.stringify(options.stdinLogPath)}, line + '\\n');`,
     "      const message = JSON.parse(line);",
     "      if (message.type === 'get_state') {",
-    `        writeEvent({ id: message.id, type: 'response', command: 'get_state', success: true, data: { sessionId: ${JSON.stringify(options.sessionId ?? 'pi-session-1')}, messageCount: 3 } });`,
+    `        writeEvent({ id: message.id, type: 'response', command: 'get_state', success: true, data: { sessionId: ${JSON.stringify(options.sessionId ?? 'pi-session-1')}, messageCount: 3, model: { id: 'deepseek-v4-flash', provider: 'deepseek' } } });`,
+    "      } else if (message.type === 'get_available_models') {",
+    "        writeEvent({ id: message.id, type: 'response', command: 'get_available_models', success: true, data: { models: [",
+    "          { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', provider: 'deepseek', reasoning: true, input: ['text'], thinkingLevelMap: { minimal: null, low: 'low', high: 'high' } },",
+    "          { id: 'flash-vision', name: 'Flash Vision', provider: 'deepseek', reasoning: true, input: ['text', 'image'], thinkingLevelMap: { low: 'low' } },",
+    "        ] } });",
     "      } else if (message.type === 'prompt') {",
     "        writeEvent({ id: message.id, type: 'response', command: 'prompt', success: true });",
     `        const behavior = ${JSON.stringify(options.behavior)};`,
@@ -179,6 +184,33 @@ describe('PiRpcRuntime turns', () => {
     writeFakePi(binaryPath, options);
     return { binaryPath, options };
   }
+
+  test('refreshStatus discovers models and the local default without writes', async () => {
+    const { binaryPath } = fakePiPaths('stream');
+    const before = await runtime.refreshStatus({
+      binaryPath,
+      binarySource: 'path',
+      version: 'pi 0.84.4',
+      env: { AILU_HOME: tempDir, PATH: process.env.PATH ?? '' },
+    });
+    expect(before.state).toBe('ready');
+    expect(before.models).toHaveLength(2);
+    expect(before.models[0]).toMatchObject({
+      id: 'deepseek-v4-flash',
+      provider: 'deepseek',
+      inputModalities: ['text'],
+      thinkingLevels: ['low', 'high'],
+    });
+    expect(before.models[1].inputModalities).toContain('image');
+    expect(before.currentModelId).toBe('deepseek/deepseek-v4-flash');
+  });
+
+  test('markUnavailable reports an error status', async () => {
+    const status = await runtime.markUnavailable('pi was not found.');
+    expect(status.state).toBe('error');
+    expect(status.error).toBe('pi was not found.');
+    expect(status.models).toEqual([]);
+  });
 
   test('streams a text response and reports the native session', async () => {
     const { binaryPath } = fakePiPaths('stream');

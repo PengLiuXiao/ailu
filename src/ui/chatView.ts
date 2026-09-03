@@ -26,6 +26,7 @@ import type {
   ChatMessage,
   CodexModelDescriptor,
   FileAttachment,
+  PiModelDescriptor,
   ProviderProfile,
   RuntimeConfigSource,
   StoredConversation,
@@ -57,6 +58,13 @@ import {
   orderedSupportedCodexReasoningEfforts,
   reconcileCodexReasoningEffort,
 } from '../runtime/codexRuntime';
+import {
+  findPiModel,
+  piFollowLocalLabel,
+  reconcilePiThinkingLevel,
+  resolvePiSendModelGuard,
+  type PiSendModelGuard,
+} from '../runtime/piModels';
 import {
   getClaudeDetectedLocalModel,
   listLocalModels,
@@ -234,6 +242,7 @@ export class AiluChatView extends ItemView {
   private modelSubmenuEl: HTMLElement | null = null;
   private submenuHideTimeout: number | null = null;
   private codexStatusUnsubscribe: (() => void) | null = null;
+  private piStatusUnsubscribe: (() => void) | null = null;
   private ccSwitchStatusUnsubscribe: (() => void) | null = null;
   private chatWriteStateUnsubscribe: (() => void) | null = null;
   private persistenceBackpressureNotice: Notice | null = null;
@@ -308,6 +317,13 @@ export class AiluChatView extends ItemView {
         this.refreshStatus();
       });
     }
+    if (!this.piStatusUnsubscribe) {
+      this.piStatusUnsubscribe = this.deps.runtimeManager.onPiStatusChange(() => {
+        if (this.agentId !== 'pi') return;
+        this.refreshAgentControls();
+        this.refreshStatus();
+      });
+    }
     if (!this.ccSwitchStatusUnsubscribe) {
       this.ccSwitchStatusUnsubscribe = this.deps.runtimeManager.onCcSwitchStatusChange(snapshot => {
         if (this.agentId !== 'claude') return;
@@ -337,6 +353,9 @@ export class AiluChatView extends ItemView {
     this.renderMessages();
     this.refreshStatus();
     if (this.agentId === 'codex') void this.deps.runtimeManager.refreshCodexStatus();
+    if (this.agentId === 'pi' && this.deps.runtimeManager.getPiStatus().state === 'idle') {
+      void this.deps.runtimeManager.refreshPiStatus();
+    }
     if (promptRuntimeSetup) this.openRuntimeSetup();
   }
 
@@ -899,6 +918,14 @@ export class AiluChatView extends ItemView {
           this.getLocalModelCwd(),
         )?.label
           ?? '跟随 Claude Code';
+      }
+      if (agentId === 'pi') {
+        const status = this.deps.runtimeManager.getPiStatus();
+        const selectedModel = settings.localModelByAgent.pi?.trim() ?? '';
+        if (selectedModel) {
+          return findPiModel(status.models, selectedModel)?.name ?? selectedModel;
+        }
+        return piFollowLocalLabel(status);
       }
       if (agentId === 'codex') {
         const status = this.deps.runtimeManager.getCodexStatus();
@@ -1548,6 +1575,10 @@ export class AiluChatView extends ItemView {
       this.renderCodexModelDropdown(dropdown);
       return;
     }
+    if (this.agentId === 'pi') {
+      this.renderPiModelDropdown(dropdown);
+      return;
+    }
 
     const selectedLocalModel = settings.localModelByAgent[this.agentId] ?? '';
     const localModels = listLocalModels(this.agentId);
@@ -1694,6 +1725,15 @@ export class AiluChatView extends ItemView {
     efforts: string[];
     autoNote: string;
   } {
+    if (this.agentId === 'pi') {
+      const model = this.getSelectedPiModel(settings);
+      return {
+        efforts: model?.thinkingLevels ?? [],
+        autoNote: model && model.thinkingLevels.length > 0
+          ? '跟随 Pi 本机配置'
+          : '当前模型未声明思考级别',
+      };
+    }
     if (this.agentId === 'codex') {
       const modelDefault = this.getSelectedCodexModel(settings)?.defaultReasoningEffort ?? '';
       return {
@@ -1776,10 +1816,142 @@ export class AiluChatView extends ItemView {
       if (settings.configSources.codex !== 'localCli') return '';
       return reconcileCodexReasoningEffort(this.getSelectedCodexModel(settings), selected);
     }
+    if (agentId === 'pi') {
+      return reconcilePiThinkingLevel(this.getSelectedPiModel(settings), selected);
+    }
     if (agentId === 'claude') {
       return reconcileClaudeReasoningEffort(this.getClaudeReasoningCapability(settings), selected);
     }
     return '';
+  }
+
+  private renderPiModelDropdown(dropdown: HTMLElement): void {
+    const status = this.deps.runtimeManager.getPiStatus();
+    const settings = this.deps.getSettings();
+    const selectedModel = settings.localModelByAgent.pi?.trim() ?? '';
+
+    if (status.state === 'idle') {
+      void this.deps.runtimeManager.refreshPiStatus();
+    }
+    const searchWrap = dropdown.createDiv({ cls: 'ailu-model-group' });
+    const searchInput = searchWrap.createEl('input', {
+      cls: 'ailu-model-search-input',
+      attr: { type: 'text', placeholder: '搜索模型 / Provider', 'aria-label': '搜索 Pi 模型' },
+    });
+    const results = dropdown.createDiv();
+
+    const renderOptions = (query: string): void => {
+      results.empty();
+      results.createDiv({ cls: 'ailu-model-group', text: '本机 Pi' });
+      const followOption = results.createDiv({ cls: 'ailu-model-option' });
+      followOption.toggleClass('selected', !selectedModel);
+      const followIcon = followOption.createSpan({ cls: 'ailu-option-icon' });
+      setIcon(followIcon, status.state === 'error' ? 'circle-alert' : 'hard-drive');
+      followOption.createSpan({ text: '跟随本机' });
+      followOption.createSpan({
+        cls: 'ailu-option-note',
+        text: piFollowLocalLabel(status),
+      });
+      followOption.onclick = event => {
+        event.stopPropagation();
+        void this.selectPiModel('');
+      };
+
+      const models = status.models.filter(model => !query
+        || model.name.toLowerCase().includes(query)
+        || model.id.toLowerCase().includes(query)
+        || model.provider.toLowerCase().includes(query));
+      if (status.models.length === 0) {
+        results.createDiv({ cls: 'ailu-model-group', text: '可用模型' });
+        const empty = results.createDiv({ cls: 'ailu-model-option disabled' });
+        const emptyIcon = empty.createSpan({ cls: 'ailu-option-icon' });
+        setIcon(emptyIcon, status.state === 'error' ? 'circle-alert' : 'loader');
+        empty.createSpan({
+          text: status.state === 'error' ? '模型列表读取失败' : '正在读取模型列表…',
+        });
+        if (status.state === 'error') {
+          const retry = results.createDiv({ cls: 'ailu-model-option' });
+          const retryIcon = retry.createSpan({ cls: 'ailu-option-icon' });
+          setIcon(retryIcon, 'rotate-ccw');
+          retry.createSpan({ text: '重新读取模型列表' });
+          retry.onclick = event => {
+            event.stopPropagation();
+            void this.deps.runtimeManager.refreshPiStatus();
+          };
+        }
+        return;
+      }
+      if (query && models.length === 0) {
+        results.createDiv({ cls: 'ailu-model-group', text: '可用模型' });
+        const none = results.createDiv({ cls: 'ailu-model-option disabled' });
+        none.createSpan({ text: '没有匹配的模型' });
+        return;
+      }
+      const providers = [...new Set(models.map(model => model.provider))].sort();
+      for (const provider of providers) {
+        results.createDiv({ cls: 'ailu-model-group', text: provider });
+        for (const model of models.filter(candidate => candidate.provider === provider)) {
+          const key = `${model.provider}/${model.id}`;
+          const option = results.createDiv({ cls: 'ailu-model-option' });
+          const isSelected = selectedModel === key;
+          option.toggleClass('selected', isSelected);
+          const icon = option.createSpan({ cls: 'ailu-option-icon' });
+          setIcon(icon, 'cpu');
+          option.createSpan({ text: model.name });
+          option.createSpan({
+            cls: 'ailu-option-note',
+            text: model.inputModalities.includes('image') ? '支持图片' : model.id,
+          });
+          if (isSelected) {
+            const checkIcon = option.createSpan({ cls: 'ailu-option-check' });
+            setIcon(checkIcon, 'check');
+          }
+          option.onclick = event => {
+            event.stopPropagation();
+            void this.selectPiModel(key);
+          };
+        }
+      }
+    };
+    searchInput.addEventListener('input', () => {
+      renderOptions(searchInput.value.trim().toLowerCase());
+    });
+    renderOptions('');
+    window.setTimeout(() => searchInput.focus(), 0);
+  }
+
+  private getSelectedPiModel(settings: AiluSettings): PiModelDescriptor | null {
+    const status = this.deps.runtimeManager.getPiStatus();
+    const selectedModel = settings.localModelByAgent.pi?.trim() ?? '';
+    if (selectedModel) return findPiModel(status.models, selectedModel);
+    if (status.currentModelId) return findPiModel(status.models, status.currentModelId);
+    return null;
+  }
+
+  private async selectPiModel(modelKey: string): Promise<void> {
+    const settings = this.deps.getSettings();
+    const status = this.deps.runtimeManager.getPiStatus();
+    const model = modelKey ? findPiModel(status.models, modelKey) : null;
+    const followModel = model
+      ?? (status.currentModelId ? findPiModel(status.models, status.currentModelId) : null);
+    const selectedEffort = settings.reasoningEffortByAgent?.pi ?? '';
+    settings.configSources.pi = 'localCli';
+    settings.localModelByAgent.pi = modelKey;
+    settings.reasoningEffortByAgent.pi = reconcilePiThinkingLevel(followModel, selectedEffort);
+    this.closeAllDropdowns();
+    this.refreshAgentControls();
+    this.refreshStatus();
+    await this.queueSettingsSave();
+  }
+
+  private async guardPiModelSelection(settings: AiluSettings): Promise<PiSendModelGuard> {
+    const selectedModel = settings.localModelByAgent.pi?.trim() ?? '';
+    if (!selectedModel) return { blocked: false };
+    let status = this.deps.runtimeManager.getPiStatus();
+    if (status.state === 'idle' || status.state === 'error') {
+      status = await this.deps.runtimeManager.refreshPiStatus();
+    }
+    return resolvePiSendModelGuard({ selectedModel, status });
   }
 
   private renderCodexModelDropdown(dropdown: HTMLElement): void {
@@ -2899,6 +3071,13 @@ export class AiluChatView extends ItemView {
       ? settings.localModelByAgent[agentId]
       : undefined;
     const reasoningEffort = this.getEffectiveReasoningEffort(settings, agentId);
+    if (agentId === 'pi') {
+      const guard = await this.guardPiModelSelection(settings);
+      if (guard.blocked) {
+        new Notice(guard.message ?? '所选 Pi 模型当前不可用。');
+        return;
+      }
+    }
     const providerProfile = agentId === 'claude' && configSource === 'providerProfile'
       ? this.deps.providerStore.find(agentId, settings.providerProfileByAgent[agentId])
       : null;
@@ -3181,6 +3360,9 @@ export class AiluChatView extends ItemView {
     this.refreshAgentControls();
     this.refreshStatus();
     if (agentId === 'codex') void this.deps.runtimeManager.refreshCodexStatus();
+    if (agentId === 'pi' && this.deps.runtimeManager.getPiStatus().state === 'idle') {
+      void this.deps.runtimeManager.refreshPiStatus();
+    }
     if (agentId === 'claude' && settings.configSources.claude === 'ccSwitchCurrent') {
       void this.deps.runtimeManager.refreshCcSwitchStatus().then(snapshot => {
         this.reconcileCcSwitchReasoningEffort(snapshot);
@@ -3311,6 +3493,14 @@ export class AiluChatView extends ItemView {
         return status.currentModel?.displayName
           ?? status.currentModelId
           ?? (status.state === 'connecting' ? '读取 Codex 模型…' : '跟随 Codex App');
+      }
+      if (this.agentId === 'pi') {
+        const status = this.deps.runtimeManager.getPiStatus();
+        const selectedModel = settings.localModelByAgent.pi?.trim() ?? '';
+        if (selectedModel) {
+          return findPiModel(status.models, selectedModel)?.name ?? selectedModel;
+        }
+        return piFollowLocalLabel(status);
       }
       const selectedModel = settings.localModelByAgent[this.agentId] ?? '';
       const localModels = listLocalModels(this.agentId);

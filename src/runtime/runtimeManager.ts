@@ -5,6 +5,7 @@ import type {
   AgentStatus,
   ChatTurnRequest,
   CodexRuntimeStatus,
+  PiRuntimeStatus,
   ProviderProfile,
   RuntimeExecutionFingerprint,
   RuntimeTurnEvent,
@@ -119,6 +120,14 @@ export class RuntimeManager {
     return this.codexRuntime.onStatusChange(listener);
   }
 
+  getPiStatus(): PiRuntimeStatus {
+    return this.piRuntime.getStatus();
+  }
+
+  onPiStatusChange(listener: (status: PiRuntimeStatus) => void): () => void {
+    return this.piRuntime.onStatusChange(listener);
+  }
+
   /**
    * Captures the exact live execution configuration before a request is queued.
    * The returned HMAC is meaningful only to this RuntimeManager instance and
@@ -178,6 +187,38 @@ export class RuntimeManager {
     try {
       const status = await operation;
       if (this.lifecycle !== 'running' || epoch !== this.lifecycleEpoch) return this.codexRuntime.getStatus();
+      return status;
+    } finally {
+      this.maintenanceOperations.delete(operation);
+    }
+  }
+
+  async refreshPiStatus(): Promise<PiRuntimeStatus> {
+    if (this.lifecycle !== 'running') return this.piRuntime.getStatus();
+    if (process.platform === 'win32') {
+      await this.piRuntime.markUnavailable('Windows 上无法验证 Pi 子进程树已完整退出。');
+      return this.piRuntime.getStatus();
+    }
+    const epoch = this.lifecycleEpoch;
+    const settings = this.getSettings();
+    const discovery = new RuntimeDiscovery({
+      configuredPaths: settings.configuredPaths,
+      configSources: settings.configSources,
+    }).resolve('pi', { withVersion: true });
+    const operation = discovery.binaryPath
+      ? this.piRuntime.refreshStatus({
+        binaryPath: discovery.binaryPath,
+        binarySource: discovery.source,
+        version: discovery.version,
+        env: runtimeEnvironment(process.env, discovery.binaryPath),
+      })
+      : this.piRuntime.markUnavailable(discovery.error ?? 'pi was not found.').then(() => (
+        this.piRuntime.getStatus()
+      ));
+    this.maintenanceOperations.add(operation);
+    try {
+      const status = await operation;
+      if (this.lifecycle !== 'running' || epoch !== this.lifecycleEpoch) return this.piRuntime.getStatus();
       return status;
     } finally {
       this.maintenanceOperations.delete(operation);

@@ -4,13 +4,18 @@ import { EventEmitter } from 'events';
 
 import type {
   ChatTurnRequest,
+  PiRuntimeStatus,
   RuntimeBinarySource,
   RuntimeTurnEvent,
 } from '../types';
 import { ailuHome } from '../paths';
 import { assertManagedFrozenAttachments } from './frozenAttachments';
 import { MAX_PERSISTABLE_ASSISTANT_OUTPUT_BYTES } from './outputLimits';
-import { PiRpcClient } from './piRpc';
+import { PiRpcClient, buildPiRpcProbeArgs } from './piRpc';
+import {
+  parsePiModelsResponse,
+  parsePiStateCurrentModelKey,
+} from './piModels';
 
 export interface PiRuntimeConnection {
   binaryPath: string;
@@ -18,14 +23,6 @@ export interface PiRuntimeConnection {
   version: string | null;
   env: NodeJS.ProcessEnv;
   executionIsCurrent?: () => boolean;
-}
-
-export interface PiRuntimeStatus {
-  state: 'idle' | 'ready' | 'error';
-  binaryPath: string | null;
-  binarySource: RuntimeBinarySource | null;
-  version: string | null;
-  error: string | null;
 }
 
 export const PI_MAX_RUNTIME_EVENT_BYTES = 512 * 1_024;
@@ -71,6 +68,8 @@ export class PiRpcRuntime extends EventEmitter {
     binaryPath: null,
     binarySource: null,
     version: null,
+    models: [],
+    currentModelId: null,
     error: null,
   };
   private shutdownBarrier: Promise<void> | null = null;
@@ -90,8 +89,64 @@ export class PiRpcRuntime extends EventEmitter {
       binaryPath: null,
       binarySource: null,
       version: null,
+      models: [],
+      currentModelId: null,
       error: reason,
     });
+    return this.getStatus();
+  }
+
+  /**
+   * Spawns a short-lived probe process and reads the model catalog plus the
+   * local default model. Read-only: nothing is written to Pi configuration.
+   */
+  async refreshStatus(connection: PiRuntimeConnection): Promise<PiRuntimeStatus> {
+    const client = new PiRpcClient();
+    this.setStatus({
+      state: 'connecting',
+      binaryPath: connection.binaryPath,
+      binarySource: connection.binarySource,
+      version: connection.version,
+      models: this.status.state === 'ready' ? this.status.models : [],
+      currentModelId: this.status.currentModelId,
+      error: null,
+    });
+    try {
+      await client.connect({
+        executablePath: connection.binaryPath,
+        args: buildPiRpcProbeArgs(),
+        env: connection.env,
+      });
+      const [modelsData] = await Promise.all([
+        client.request({ type: 'get_available_models' }, 20_000),
+      ]);
+      const state = client.stateData;
+      this.setStatus({
+        state: 'ready',
+        binaryPath: connection.binaryPath,
+        binarySource: connection.binarySource,
+        version: connection.version,
+        models: parsePiModelsResponse(modelsData),
+        currentModelId: parsePiStateCurrentModelKey(state),
+        error: null,
+      });
+    } catch (error) {
+      const detail = client.lastStderrTail || String(error);
+      const unsupported = /--mode|unknown option|unrecognized/i.test(detail);
+      this.setStatus({
+        state: 'error',
+        binaryPath: connection.binaryPath,
+        binarySource: connection.binarySource,
+        version: connection.version,
+        models: [],
+        currentModelId: null,
+        error: unsupported
+          ? '当前 Pi 版本不支持 RPC 模式，请在设置中升级 Pi 后重新检测。'
+          : `无法读取 Pi 模型列表：${detail.slice(0, 300)}`,
+      });
+    } finally {
+      this.trackClientTeardown(client);
+    }
     return this.getStatus();
   }
 

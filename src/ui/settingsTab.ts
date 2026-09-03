@@ -19,7 +19,6 @@ import type {
   AiluSettings,
 } from '../types';
 import { RuntimeDiscovery, invalidateRuntimeDiscoveryCache } from '../runtime/discovery';
-import { probePiRpcCapability, type PiRpcProbeResult } from '../runtime/piRpc';
 import {
   ccSwitchRouteSummary,
   ccSwitchGlobalSnapshot,
@@ -239,8 +238,6 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
 export class AiluSettingTab extends PluginSettingTab {
   private editingProfileId: string | null = null;
   private activeTab: SettingsTabId = 'general';
-  private piRpcProbe: PiRpcProbeResult | null = null;
-  private piRpcProbeInFlight = false;
   private selectedProviderKey = 'deepseek';
   private ccSwitchAutoRefreshRequested = false;
 
@@ -802,47 +799,31 @@ export class AiluSettingTab extends PluginSettingTab {
   }
 
   private renderPiRpcStatus(section: HTMLElement, status: AgentStatus): void {
-    const renderProbeText = (): string => {
-      if (!status.binaryPath) return '未检测到 Pi CLI，请先安装 Pi 后重试。';
-      const probe = this.piRpcProbe;
-      if (!probe) return '尚未检测 Pi RPC 能力。';
-      if (probe.state === 'ready') return '已连接，Pi RPC 模式可用。';
-      const detail = probe.detail ? `（${probe.detail.slice(0, 300)}）` : '';
-      return `${probe.message}${detail}`;
-    };
+    const piStatus = this.deps.runtimeManager.getPiStatus();
+    const modelLabel = piStatus.currentModelId ?? '等待 Pi 返回本机默认模型';
+    const statusText = piStatus.state === 'ready'
+      ? `已连接 · ${piStatus.models.length} 个模型可用 · 本机默认：${modelLabel}`
+      : piStatus.state === 'connecting'
+        ? '正在读取 Pi 模型列表…'
+        : piStatus.state === 'error'
+          ? `连接失败：${piStatus.error ?? 'Pi 暂时不可用。'}`
+          : status.binaryPath
+            ? '尚未连接，打开 Pi 对话或点击刷新。'
+            : '未检测到 Pi CLI，请先安装 Pi。';
     new Setting(section)
       .setName('Pi RPC 服务')
-      .setDesc(renderProbeText())
+      .setDesc(statusText)
       .addButton(button => button
         .setButtonText('重新检测')
         .onClick(async () => {
           button.setDisabled(true);
-          await this.refreshPiRpcProbe(status);
+          await this.deps.runtimeManager.refreshPiStatus();
           this.display();
         }));
-    if (status.binaryPath && !this.piRpcProbe && !this.piRpcProbeInFlight) {
-      void this.refreshPiRpcProbe(status).then(() => {
+    if (piStatus.state === 'idle' && status.binaryPath) {
+      void this.deps.runtimeManager.refreshPiStatus().then(() => {
         if (this.activeTab === 'pi') this.display();
       });
-    }
-  }
-
-  private async refreshPiRpcProbe(status: AgentStatus): Promise<void> {
-    if (!status.binaryPath || this.piRpcProbeInFlight) return;
-    this.piRpcProbeInFlight = true;
-    try {
-      this.piRpcProbe = await probePiRpcCapability({
-        executablePath: status.binaryPath,
-        env: runtimeEnvironment(process.env, status.binaryPath),
-      });
-    } catch (error) {
-      this.piRpcProbe = {
-        state: 'unavailable',
-        message: '检测 Pi RPC 能力时出错。',
-        detail: String(error),
-      };
-    } finally {
-      this.piRpcProbeInFlight = false;
     }
   }
 

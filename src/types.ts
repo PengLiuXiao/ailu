@@ -317,6 +317,30 @@ export interface CodexRuntimeStatus {
   error: string | null;
 }
 
+export interface PiModelDescriptor {
+  /** Pi model id, unique within its provider (for example deepseek-v4-flash). */
+  id: string;
+  provider: string;
+  name: string;
+  reasoning: boolean;
+  /** Input modalities advertised by Pi, for example ["text", "image"]. */
+  inputModalities: string[];
+  /** Thinking levels the model supports, in canonical Pi order. */
+  thinkingLevels: string[];
+}
+
+export interface PiRuntimeStatus {
+  state: 'idle' | 'connecting' | 'ready' | 'error';
+  binaryPath: string | null;
+  binarySource: RuntimeBinarySource | null;
+  version: string | null;
+  /** Models discovered through the Pi RPC protocol. */
+  models: PiModelDescriptor[];
+  /** Provider-prefixed key of the model Pi would use without overrides. */
+  currentModelId: string | null;
+  error: string | null;
+}
+
 export interface StoredConversation {
   id: string;
   title: string;

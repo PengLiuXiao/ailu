@@ -7266,3 +7266,21 @@ button.ailu-feishu-destination-tree-main:focus-visible {
     min-width: 104px;
   }
 }
+
+/* Pi model dropdown search input */
+.ailu-model-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 4px 0;
+  padding: 4px 8px;
+  font-size: var(--font-ui-small);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+}
+
+.ailu-model-search-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
