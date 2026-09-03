@@ -6,6 +6,7 @@ import { EventEmitter } from 'events';
 import type {
   ChatTurnRequest,
   FileAttachment,
+  PiPermissionDecision,
   PiRuntimeStatus,
   RuntimeBinarySource,
   RuntimeTurnEvent,
@@ -14,6 +15,11 @@ import { ailuHome } from '../paths';
 import { assertManagedFrozenAttachments } from './frozenAttachments';
 import { MAX_PERSISTABLE_ASSISTANT_OUTPUT_BYTES } from './outputLimits';
 import { PiRpcClient, buildPiRpcProbeArgs } from './piRpc';
+import {
+  AILU_BRIDGE_ACTIVE_NOTIFY,
+  ensurePiBridgeExtension,
+  parseAiluPermissionRequest,
+} from './piBridgeExtension';
 import {
   parsePiModelsResponse,
   parsePiStateCurrentModelKey,
@@ -41,6 +47,8 @@ const FIRE_AND_FORGET_UI_METHODS = new Set([
 
 interface ActivePiTurn {
   client: PiRpcClient;
+  /** Unsettled bridge dialogs; the turn denies them on teardown. */
+  pendingPermissions: Set<number | string>;
   listener: (event: RuntimeTurnEvent) => void;
   settle: () => void;
   settled: boolean;
@@ -202,6 +210,7 @@ export class PiRpcRuntime extends EventEmitter {
     });
     const active: ActivePiTurn = {
       client,
+      pendingPermissions: new Set(),
       listener,
       settle: () => {
         settleTurn();
@@ -225,6 +234,14 @@ export class PiRpcRuntime extends EventEmitter {
       if (active.settled) return;
       active.settled = true;
       if (event) listener(event);
+      for (const pendingId of [...active.pendingPermissions]) {
+        active.pendingPermissions.delete(pendingId);
+        try {
+          active.client.respondUiRequest(pendingId, { cancelled: true });
+        } catch {
+          // The process is going away; a missed response is harmless.
+        }
+      }
       listener({
         type: 'done',
         ...(active.exposeSession && active.sessionId ? { sessionId: active.sessionId } : {}),
@@ -350,13 +367,58 @@ export class PiRpcRuntime extends EventEmitter {
       }
     };
 
+    let bridgeActive = false;
+
     const handleUiRequest = (request_: Record<string, unknown>): void => {
       const method = safeText(request_.method, '');
       const id = request_.id;
       if (id === undefined) return;
+      if (method === 'notify' && safeText(request_.message, '') === AILU_BRIDGE_ACTIVE_NOTIFY) {
+        bridgeActive = true;
+        return;
+      }
+      const permission = method === 'select'
+        ? parseAiluPermissionRequest(request_.title)
+        : null;
+      if (permission) {
+        const requester = active.client;
+        active.pendingPermissions.add(id as number | string);
+        listener({
+          type: 'permission',
+          permission: {
+            id: id as number | string,
+            toolName: permission.tool,
+            category: permission.category,
+            detail: permission.detail,
+            respond: (decision: PiPermissionDecision) => {
+              if (!active.pendingPermissions.delete(id as number | string)
+                && decision !== 'deny') {
+                // Already settled or answered; a stale duplicate response is
+                // ignored so a dismissal cannot flip an earlier decision.
+                return;
+              }
+              try {
+                requester.respondUiRequest(
+                  id as number | string,
+                  decision === 'dismissed' || decision === 'deny'
+                    ? (
+                      // deny keeps the dialog protocol alive with an explicit
+                      // choice; dismissal cancels it. Both block the tool.
+                      decision === 'deny' ? { value: 'deny' } : { cancelled: true }
+                    )
+                    : { value: decision },
+                );
+              } catch {
+                // The process is going away; the turn already accounts for it.
+              }
+            },
+          },
+        });
+        return;
+      }
       if (!FIRE_AND_FORGET_UI_METHODS.has(method)) {
         // Extension dialogs that Ailu cannot render are cancelled so Pi can
-        // continue; the #6 permission bridge handles its own dialogs.
+        // continue; the permission bridge handles its own dialogs above.
         active.client.respondUiRequest(id as number | string, { cancelled: true });
         listener({
           type: 'diagnostic',
@@ -389,6 +451,28 @@ export class PiRpcRuntime extends EventEmitter {
      * Connects the live client and records whether a requested resume found
      * an empty session file (Pi recreates missing sessions with the same id).
      */
+    const bridgeConfig = {
+      fullAccess: runtimeRequest.fullAccess === true,
+      planMode: runtimeRequest.planMode === true,
+    };
+    let bridgePath: string | null = null;
+    if (!isolated) {
+      try {
+        bridgePath = ensurePiBridgeExtension(bridgeConfig, connection.env);
+      } catch (error) {
+        listener({
+          type: 'error',
+          message: '无法写入 Pi 权限桥扩展，本次未启动。',
+          detail: String(error),
+          diagnostic: 'pi_permission_bridge_unavailable',
+        });
+        listener({ type: 'done' });
+        return;
+      }
+    }
+    // The bridge must be provably loaded before unguarded tool execution.
+    const bridgeRequired = !isolated && !bridgeConfig.fullAccess;
+
     const connectPiSession = async (connectRequest: ChatTurnRequest): Promise<boolean> => {
       const connectClient = active.client;
       connectClient.on('piEvent', (event: Record<string, unknown>) => handleEvent(event));
@@ -396,7 +480,7 @@ export class PiRpcRuntime extends EventEmitter {
       connectClient.on('close', (reason: string) => handleClose(reason));
       await connectClient.connect({
         executablePath: connection.binaryPath,
-        args: buildPiTurnArgs(connectRequest, sessionDir),
+        args: buildPiTurnArgs(connectRequest, sessionDir, bridgePath),
         env: connection.env,
         cwd: connectRequest.cwd,
       });
@@ -413,6 +497,7 @@ export class PiRpcRuntime extends EventEmitter {
     const swapToFreshSession = (): void => {
       const previousClient = active.client;
       active.client = new PiRpcClient();
+      bridgeActive = false;
       this.trackClientTeardown(previousClient);
     };
 
@@ -478,6 +563,23 @@ export class PiRpcRuntime extends EventEmitter {
     }
 
     active.connectCompleted = true;
+    if (bridgeRequired) {
+      const deadline = Date.now() + 5_000;
+      while (!bridgeActive && !active.settled && Date.now() < deadline) {
+        await new Promise<void>(resolve => {
+          window.setTimeout(resolve, 25);
+        });
+      }
+      if (!bridgeActive && !active.settled) {
+        finish({
+          type: 'error',
+          message: 'Pi 权限桥扩展未加载，本次已按安全策略取消。',
+          detail: '请重试；若持续出现，请在设置中重新检测 Pi 或升级 Pi 版本。',
+          diagnostic: 'pi_permission_bridge_missing',
+        });
+        return;
+      }
+    }
     if (active.exposeSession && active.sessionId) {
       listener({ type: 'session', sessionId: active.sessionId });
     }
@@ -667,7 +769,11 @@ export function piSessionDir(env: NodeJS.ProcessEnv = process.env): string {
   return path.join(ailuHome(env), 'pi-sessions');
 }
 
-export function buildPiTurnArgs(request: ChatTurnRequest, sessionDir: string): string[] {
+export function buildPiTurnArgs(
+  request: ChatTurnRequest,
+  sessionDir: string,
+  bridgePath?: string | null,
+): string[] {
   const args: string[] = [];
   if (request.textOnly === true) {
     args.push(
@@ -683,6 +789,7 @@ export function buildPiTurnArgs(request: ChatTurnRequest, sessionDir: string): s
     args.push('--session-dir', sessionDir);
     if (request.sessionId?.trim()) args.push('--session-id', request.sessionId.trim());
   }
+  if (bridgePath && request.textOnly !== true) args.push('-e', bridgePath);
   const model = request.model?.trim();
   if (model) args.push('--model', model);
   const thinking = request.reasoningEffort?.trim();

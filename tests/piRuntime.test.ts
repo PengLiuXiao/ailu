@@ -36,7 +36,9 @@ interface FakePiOptions {
   markerPath: string;
   stdinLogPath: string;
   pidPath: string;
-  behavior: 'stream' | 'hold' | 'exit' | 'agent-error' | 'oversize' | 'dialog' | 'corrupt';
+  behavior: 'stream' | 'hold' | 'exit' | 'agent-error' | 'oversize' | 'dialog' | 'corrupt' | 'permission';
+  /** Emit the Ailu bridge activation notify at startup (default true). */
+  bridgeActive?: boolean;
   /** Session id base; each spawn appends its index (pi-session-1, pi-session-2). */
   sessionId?: string;
   /** get_state messageCount; 0 simulates a session Pi had to recreate. */
@@ -63,6 +65,9 @@ function writeFakePi(executablePath: string, options: FakePiOptions): void {
       + `fs.appendFileSync(${JSON.stringify(options.pidPath)}, '\\n' + descendant.pid);`
       : '',
     "const writeEvent = value => process.stdout.write(JSON.stringify(value) + '\\n');",
+    `    if (${JSON.stringify(options.bridgeActive !== false)}) {`,
+    "      writeEvent({ type: 'extension_ui_request', id: 'bridge-notify-1', method: 'notify', message: 'AILU_BRIDGE_ACTIVE', notifyType: 'info' });",
+    "    }",
     "let buffer = '';",
     "process.stdin.setEncoding('utf8');",
     "process.stdin.on('data', chunk => {",
@@ -100,6 +105,8 @@ function writeFakePi(executablePath: string, options: FakePiOptions): void {
     "          writeEvent({ type: 'agent_settled' });",
     "        } else if (behavior === 'oversize') {",
     "          writeEvent({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'x'.repeat(" + String(PI_MAX_RUNTIME_EVENT_BYTES + 1024) + ") } });",
+    "        } else if (behavior === 'permission') {",
+    "          writeEvent({ type: 'extension_ui_request', id: 'perm-1', method: 'select', title: 'AILU_PERMISSION::' + JSON.stringify({ tool: 'bash', category: 'bash', detail: 'rm -rf /tmp/x' }), options: ['allow-once', 'allow-turn', 'deny'] });",
     "        } else if (behavior === 'dialog') {",
     "          writeEvent({ type: 'extension_ui_request', id: 'ui-1', method: 'confirm', title: 'Some extension dialog' });",
     "        } else if (behavior === 'exit') {",
@@ -111,6 +118,11 @@ function writeFakePi(executablePath: string, options: FakePiOptions): void {
     "          writeEvent({ type: 'agent_end', messages: [{ role: 'assistant', stopReason: 'stop' }] });",
     "          writeEvent({ type: 'agent_settled' });",
     "        }",
+    "      } else if (message.type === 'extension_ui_response' && message.id === 'perm-1') {",
+    "        writeEvent({ type: 'tool_execution_start', toolCallId: 't-1', toolName: 'bash', args: { command: 'rm -rf /tmp/x' } });",
+    "        writeEvent({ type: 'tool_execution_end', toolCallId: 't-1', toolName: 'bash', result: message.value === 'deny' || message.cancelled ? 'blocked by user' : 'done', isError: message.value === 'deny' || message.cancelled === true });",
+    "        writeEvent({ type: 'agent_end', messages: [{ role: 'assistant', stopReason: 'stop' }] });",
+    "        writeEvent({ type: 'agent_settled' });",
     "      } else if (message.type === 'abort') {",
     "        writeEvent({ id: message.id, type: 'response', command: 'abort', success: true });",
     "        writeEvent({ type: 'agent_settled' });",
@@ -122,6 +134,29 @@ function writeFakePi(executablePath: string, options: FakePiOptions): void {
     "process.on('SIGTERM', () => process.exit(0));",
     "setInterval(() => {}, 1000);",
   ].join('\n'), { mode: 0o755 });
+}
+
+function waitForEvent(
+  events: RuntimeTurnEvent[],
+  type: string,
+  timeoutMs = 10_000,
+): Promise<RuntimeTurnEvent> {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + timeoutMs;
+    const poll = (): void => {
+      const found = events.find(event => event.type === type);
+      if (found) {
+        resolve(found);
+        return;
+      }
+      if (Date.now() > deadline) {
+        reject(new Error(`waitForEvent(${type}) timed out`));
+        return;
+      }
+      window.setTimeout(poll, 25);
+    };
+    poll();
+  });
 }
 
 async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
@@ -327,6 +362,71 @@ describe('PiRpcRuntime turns', () => {
     const done = events.find(event => event.type === 'done') as { sessionId?: string | null };
     expect(done.sessionId).toBe('pi-session-2');
   });
+
+  test('relays a bridge permission prompt and forwards the user decision', async () => {
+    const { binaryPath, options } = fakePiPaths('permission');
+    const events: RuntimeTurnEvent[] = [];
+    const turn = runtime.runTurn(baseRequest(), connectionFor(binaryPath), event => events.push(event));
+    const permissionEvent = await new Promise<RuntimeTurnEvent>(resolve => {
+      const poll = (): void => {
+        const found = events.find(event => event.type === 'permission');
+        if (found) resolve(found);
+        else window.setTimeout(poll, 25);
+      };
+      poll();
+    });
+    if (permissionEvent.type !== 'permission') throw new Error('expected a permission event');
+    expect(permissionEvent.permission.toolName).toBe('bash');
+    expect(permissionEvent.permission.category).toBe('bash');
+    expect(permissionEvent.permission.detail).toBe('rm -rf /tmp/x');
+    permissionEvent.permission.respond('allow-turn');
+    await turn;
+    const responses = fs.readFileSync(options.stdinLogPath, 'utf8').trim().split('\n')
+      .map(line => JSON.parse(line) as Record<string, unknown>);
+    expect(responses).toContainEqual(
+      expect.objectContaining({ type: 'extension_ui_response', id: 'perm-1', value: 'allow-turn' }),
+    );
+    expect(events).toContainEqual(expect.objectContaining({ type: 'tool' }));
+    expect(events).not.toContainEqual(expect.objectContaining({ type: 'error' }));
+  }, 15_000);
+
+  test('deny and dismissal each settle the prompt deterministically', async () => {
+    const denyCase = fakePiPaths('permission');
+    const denyEvents: RuntimeTurnEvent[] = [];
+    const denyTurn = runtime.runTurn(baseRequest(), connectionFor(denyCase.binaryPath), event => denyEvents.push(event));
+    const denyPermission = await waitForEvent(denyEvents, 'permission');
+    if (denyPermission.type !== 'permission') throw new Error('expected permission');
+    denyPermission.permission.respond('deny');
+    await denyTurn;
+    const denyResponses = fs.readFileSync(denyCase.options.stdinLogPath, 'utf8').trim().split('\n')
+      .map(line => JSON.parse(line) as Record<string, unknown>);
+    expect(denyResponses).toContainEqual(
+      expect.objectContaining({ type: 'extension_ui_response', id: 'perm-1', value: 'deny' }),
+    );
+
+    const dismissCase = fakePiPaths('permission');
+    const dismissEvents: RuntimeTurnEvent[] = [];
+    const dismissTurn = runtime.runTurn(baseRequest(), connectionFor(dismissCase.binaryPath), event => dismissEvents.push(event));
+    const dismissPermission = await waitForEvent(dismissEvents, 'permission');
+    if (dismissPermission.type !== 'permission') throw new Error('expected permission');
+    dismissPermission.permission.respond('dismissed');
+    await dismissTurn;
+    const dismissResponses = fs.readFileSync(dismissCase.options.stdinLogPath, 'utf8').trim().split('\n')
+      .map(line => JSON.parse(line) as Record<string, unknown>);
+    expect(dismissResponses).toContainEqual(
+      expect.objectContaining({ type: 'extension_ui_response', id: 'perm-1', cancelled: true }),
+    );
+  }, 15_000);
+
+  test('fails closed before the prompt when the permission bridge never loads', async () => {
+    const { binaryPath, options } = fakePiPaths('stream', { bridgeActive: false });
+    const events: RuntimeTurnEvent[] = [];
+    await runtime.runTurn(baseRequest(), connectionFor(binaryPath), event => events.push(event));
+    const error = events.find(event => event.type === 'error') as { diagnostic?: string } | undefined;
+    expect(error?.diagnostic).toBe('pi_permission_bridge_missing');
+    const stdin = fs.readFileSync(options.stdinLogPath, 'utf8');
+    expect(stdin).not.toContain('"prompt"');
+  }, 15_000);
 
   test('stopping a turn aborts only that process tree', async () => {
     const { binaryPath, options } = fakePiPaths('hold', { spawnDescendant: true });

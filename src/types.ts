@@ -250,6 +250,9 @@ export interface ChatTurnRequest {
   signal?: AbortSignal;
 }
 
+/** Interactive Pi tool-permission decision returned to the runtime bridge. */
+export type PiPermissionDecision = 'allow-once' | 'allow-turn' | 'deny' | 'dismissed';
+
 export type RuntimeTurnEvent =
   | { type: 'session'; sessionId: string }
   | { type: 'text'; content: string }
@@ -281,6 +284,20 @@ export type RuntimeTurnEvent =
     code: string;
     message: string;
     detail?: string;
+  }
+  | {
+    /**
+     * The Pi permission bridge asks the user to approve one tool call.
+     * `respond` settles the blocking Pi dialog; dismissal must deny.
+     */
+    type: 'permission';
+    permission: {
+      id: number | string;
+      toolName: string;
+      category: string;
+      detail: string;
+      respond: (decision: PiPermissionDecision) => void;
+    };
   }
   | { type: 'done'; sessionId?: string | null };
 

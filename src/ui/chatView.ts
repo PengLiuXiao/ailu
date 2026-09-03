@@ -58,6 +58,7 @@ import {
   orderedSupportedCodexReasoningEfforts,
   reconcileCodexReasoningEffort,
 } from '../runtime/codexRuntime';
+import { PiPermissionModal } from './piPermissionModal';
 import {
   findPiModel,
   piFollowLocalLabel,
@@ -2252,6 +2253,21 @@ export class AiluChatView extends ItemView {
         && delivery.event.event.code === 'pi_session_rebuilt'
       ) {
         new Notice(delivery.event.event.message);
+      }
+      if (
+        delivery.event.type === 'runtime'
+        && delivery.event.event.type === 'permission'
+      ) {
+        const { permission } = delivery.event.event;
+        new PiPermissionModal(
+          this.app,
+          {
+            toolName: permission.toolName,
+            category: permission.category,
+            detail: permission.detail,
+          },
+          decision => permission.respond(decision),
+        ).open();
       }
       this.scheduleConversationSnapshotRefresh(conversationId, generation);
     });
