@@ -515,7 +515,7 @@ describe('PiRpcRuntime turns', () => {
     const binaryPath = path.join(tempDir, 'pi-broken-extension');
     fs.writeFileSync(
       binaryPath,
-      '#!/bin/sh\necho "failed to load extension /Users/x/.pi/agent/extensions/broken.ts" >&2\nexit 1\n',
+      '#!/bin/sh\necho "failed to load extension /home/tester/.pi/agent/extensions/broken.ts" >&2\nexit 1\n',
       { mode: 0o755 },
     );
     const events: RuntimeTurnEvent[] = [];

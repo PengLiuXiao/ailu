@@ -287,6 +287,40 @@ describe('PiRpcClient transport', () => {
   });
 });
 
+describe('Windows fail-closed boundary', () => {
+  beforeEach(() => {
+    vi.stubGlobal('window', { setTimeout, clearTimeout });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  test('the RPC client refuses to spawn on Windows', async () => {
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      const client = new PiRpcClient();
+      await expect(client.connect({ executablePath: '/fake/pi' }))
+        .rejects.toThrow('Windows');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+
+  test('the capability probe reports Windows as unavailable without spawning', async () => {
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      const result = await probePiRpcCapability({ executablePath: '/fake/pi' });
+      expect(result.state).toBe('unavailable');
+      expect(result.message).toContain('Windows');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+});
+
 describe('probePiRpcCapability', () => {
   let tempDir: string;
 
