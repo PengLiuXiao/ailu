@@ -462,6 +462,11 @@ export function buildPiRpcProbeArgs(): string[] {
   ];
 }
 
+/** True when Pi's stderr shows it rejects RPC-mode flags (too old / incompatible). */
+export function isPiRpcUnsupportedDetail(detail: string): boolean {
+  return /--mode|unknown option|unrecognized/i.test(detail);
+}
+
 export interface PiRpcProbeResult {
   state: 'ready' | 'unavailable' | 'unsupported';
   /** User-facing Chinese message describing the outcome and next action. */
@@ -497,7 +502,7 @@ export async function probePiRpcCapability(
     };
   } catch (error) {
     const detail = client.lastStderrTail || String(error);
-    if (/--mode|unknown option|unrecognized/i.test(detail)) {
+    if (isPiRpcUnsupportedDetail(detail)) {
       return {
         state: 'unsupported',
         message: '当前 Pi 版本不支持 RPC 模式，请升级 Pi 后重试。',

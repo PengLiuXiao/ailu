@@ -62,6 +62,7 @@ import { PiPermissionModal } from './piPermissionModal';
 import {
   findPiModel,
   piFollowLocalLabel,
+  piModelKey,
   reconcilePiThinkingLevel,
   resolvePiSendModelGuard,
   resolvePiAttachmentPreflight,
@@ -1895,7 +1896,7 @@ export class AiluChatView extends ItemView {
       for (const provider of providers) {
         results.createDiv({ cls: 'ailu-model-group', text: provider });
         for (const model of models.filter(candidate => candidate.provider === provider)) {
-          const key = `${model.provider}/${model.id}`;
+          const key = piModelKey(model);
           const option = results.createDiv({ cls: 'ailu-model-option' });
           const isSelected = selectedModel === key;
           option.toggleClass('selected', isSelected);

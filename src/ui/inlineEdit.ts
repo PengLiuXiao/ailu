@@ -1,6 +1,5 @@
 import { App, Editor, MarkdownView, Modal, Notice, Plugin, Setting } from 'obsidian';
 
-
 import type { AgentId, RuntimeTurnEvent, AiluSettings } from '../types';
 import { getAgentDescriptor } from '../agents';
 import { RuntimeManager } from '../runtime/runtimeManager';

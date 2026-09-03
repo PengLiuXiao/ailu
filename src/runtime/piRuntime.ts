@@ -14,7 +14,7 @@ import type {
 import { ailuHome } from '../paths';
 import { assertManagedFrozenAttachments } from './frozenAttachments';
 import { MAX_PERSISTABLE_ASSISTANT_OUTPUT_BYTES } from './outputLimits';
-import { PiRpcClient, buildPiRpcProbeArgs } from './piRpc';
+import { PiRpcClient, buildPiRpcProbeArgs, isPiRpcUnsupportedDetail } from './piRpc';
 import {
   AILU_BRIDGE_ACTIVE_NOTIFY,
   ensurePiBridgeExtension,
@@ -130,9 +130,7 @@ export class PiRpcRuntime extends EventEmitter {
         args: buildPiRpcProbeArgs(),
         env: connection.env,
       });
-      const [modelsData] = await Promise.all([
-        client.request({ type: 'get_available_models' }, 20_000),
-      ]);
+      const modelsData = await client.request({ type: 'get_available_models' }, 20_000);
       const state = client.stateData;
       this.setStatus({
         state: 'ready',
@@ -145,7 +143,7 @@ export class PiRpcRuntime extends EventEmitter {
       });
     } catch (error) {
       const detail = client.lastStderrTail || String(error);
-      const unsupported = /--mode|unknown option|unrecognized/i.test(detail);
+      const unsupported = isPiRpcUnsupportedDetail(detail);
       this.setStatus({
         state: 'error',
         binaryPath: connection.binaryPath,
@@ -498,6 +496,7 @@ export class PiRpcRuntime extends EventEmitter {
     const swapToFreshSession = (): void => {
       const previousClient = active.client;
       active.client = new PiRpcClient();
+      active.sessionId = null;
       bridgeActive = false;
       this.trackClientTeardown(previousClient);
     };
@@ -510,7 +509,7 @@ export class PiRpcRuntime extends EventEmitter {
 
     const failConnect = (error: unknown, connectClient: PiRpcClient): void => {
       const detail = connectClient.lastStderrTail || String(error);
-      const unsupported = /--mode|unknown option|unrecognized/i.test(detail);
+      const unsupported = isPiRpcUnsupportedDetail(detail);
       const extensionFailure = /extension|\.mjs|\.ts\b/i.test(detail) && !unsupported;
       const detailWithRecovery = extensionFailure
         ? `${detail}\n\n可能是 Pi 扩展或配置加载失败（见上方来源路径）。可在 设置 → Pi → 定制与信任 中切换为“隔离模式”后重试。`
@@ -549,7 +548,7 @@ export class PiRpcRuntime extends EventEmitter {
     } catch (error) {
       const failedClient = active.client;
       const detail = failedClient.lastStderrTail || String(error);
-      const unsupported = /--mode|unknown option|unrecognized/i.test(detail);
+      const unsupported = isPiRpcUnsupportedDetail(detail);
       // A stored session file that refuses to load is corrupt; with a verified
       // handoff prompt the turn can restart on a brand-new private session.
       if (!unsupported && fallbackAllowed && effectiveRequest.sessionId?.trim()) {
