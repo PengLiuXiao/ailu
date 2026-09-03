@@ -1,11 +1,13 @@
 import { App, Editor, MarkdownView, Modal, Notice, Plugin, Setting } from 'obsidian';
 
+
 import type { AgentId, RuntimeTurnEvent, AiluSettings } from '../types';
+import { getAgentDescriptor } from '../agents';
 import { RuntimeManager } from '../runtime/runtimeManager';
 import { getVaultBasePath } from '../utils/vault';
-import { createId } from '../utils/id';
 import { userFacingErrorText } from '../utils/userFacingError';
 import { promptForText } from './textPromptModal';
+import { buildInlineEditTurnInput } from './inlineEditTurn';
 
 export async function runInlineEdit(
   plugin: Plugin,
@@ -36,6 +38,10 @@ export async function runInlineEdit(
 
   const settings = getSettings();
   const agentId: AgentId = settings.defaultAgentId;
+  if (!getAgentDescriptor(agentId).supportsInlineEdit) {
+    new Notice(`${getAgentDescriptor(agentId).displayName} 暂不支持行内修改。`);
+    return;
+  }
   const vaultBasePath = getVaultBasePath(plugin.app);
   if (!vaultBasePath) {
     new Notice('Ailu 需要可访问的本地 Obsidian 仓库路径。');
@@ -50,24 +56,15 @@ export async function runInlineEdit(
     original,
   ].join('\n');
   let proposed = '';
-  await runtimeManager.runTurn({
-    conversationId: createId('inline'),
-    agentId,
-    prompt,
-    cwd: vaultBasePath,
-    configSource: settings.configSources[agentId],
-    providerProfileId: settings.providerProfileByAgent[agentId],
-    model: settings.localModelByAgent[agentId],
-    systemPrompt: settings.systemPrompt,
-    planMode: false,
-    fullAccess: settings.fullAccessByAgent[agentId],
-    attachments: [],
-  }, (event: RuntimeTurnEvent) => {
-    if (event.type === 'text') proposed += event.content;
-    if (event.type === 'error') {
-      new Notice(userFacingErrorText(event.message, '行内修改失败，请稍后重试。'));
-    }
-  });
+  await runtimeManager.runTurn(
+    buildInlineEditTurnInput({ settings, agentId, prompt, cwd: vaultBasePath }),
+    (event: RuntimeTurnEvent) => {
+      if (event.type === 'text') proposed += event.content;
+      if (event.type === 'error') {
+        new Notice(userFacingErrorText(event.message, '行内修改失败，请稍后重试。'));
+      }
+    },
+  );
 
   const cleaned = cleanReplacement(proposed);
   if (!cleaned.trim()) {
