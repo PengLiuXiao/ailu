@@ -126,6 +126,40 @@ export function piFollowLocalLabel(status: Pick<PiRuntimeStatus, 'state' | 'mode
   return '跟随本机';
 }
 
+export function piModelSupportsImages(model: PiModelDescriptor | null): boolean {
+  return model?.inputModalities.includes('image') ?? false;
+}
+
+export interface PiAttachmentPreflight {
+  blocked: boolean;
+  message?: string;
+}
+
+/**
+ * Pi models that do not advertise image input must be blocked before the
+ * process launches, with an explicit choice between switching models and
+ * removing the attachment.
+ */
+export function resolvePiAttachmentPreflight(input: {
+  attachments: readonly unknown[];
+  model: PiModelDescriptor | null;
+}): PiAttachmentPreflight {
+  if (input.attachments.length === 0) return { blocked: false };
+  if (input.model === null) {
+    return {
+      blocked: true,
+      message: '无法确认当前 Pi 模型是否支持图片输入。请在模型选择器中选择模型（或重新读取模型列表），或移除图片附件后再发送。',
+    };
+  }
+  if (!piModelSupportsImages(input.model)) {
+    return {
+      blocked: true,
+      message: `所选 Pi 模型 ${input.model.name} 不支持图片输入。请在模型选择器改用带“支持图片”标记的模型，或移除图片附件后再发送。`,
+    };
+  }
+  return { blocked: false };
+}
+
 export interface PiSendModelGuard {
   blocked: boolean;
   message?: string;

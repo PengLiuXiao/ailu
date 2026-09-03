@@ -14,6 +14,7 @@ import {
   PiRpcRuntime,
   PI_MAX_RUNTIME_EVENT_BYTES,
 } from '../src/runtime/piRuntime';
+import { freezeVerifiedImageAttachment } from '../src/runtime/frozenAttachments';
 import { ProviderStore } from '../src/storage/providerStore';
 
 function sleep(ms: number): Promise<void> {
@@ -383,7 +384,41 @@ describe('PiRpcRuntime turns', () => {
     expect(error?.diagnostic).toBe('pi_output_limit_exceeded');
   });
 
-  test('image attachments are blocked before any process spawn', async () => {
+  test('sends a managed frozen image as base64 Pi image content', async () => {
+    const { binaryPath, options } = fakePiPaths('stream');
+    const vaultDir = path.join(tempDir, 'vault');
+    fs.mkdirSync(vaultDir, { recursive: true });
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    const frozen = freezeVerifiedImageAttachment({
+      vaultPath: 'shot.png',
+      vaultRoot: vaultDir,
+      body: png,
+      mimeType: 'image/png',
+      env: { AILU_HOME: tempDir, PATH: process.env.PATH ?? '' },
+    });
+    const events: RuntimeTurnEvent[] = [];
+    await runtime.runTurn(
+      baseRequest({ attachments: [frozen] }),
+      connectionFor(binaryPath),
+      event => events.push(event),
+    );
+    expect(events).not.toContainEqual(expect.objectContaining({ type: 'error' }));
+    const promptLine = fs.readFileSync(options.stdinLogPath, 'utf8').trim().split('\n')
+      .map(line => JSON.parse(line) as {
+        type: string;
+        message?: string;
+        images?: Array<{ data: string; mimeType: string }>;
+      })
+      .find(message => message.type === 'prompt');
+    expect(promptLine?.images).toHaveLength(1);
+    expect(promptLine?.images?.[0].mimeType).toBe('image/png');
+    expect(promptLine?.images?.[0].data).toBe(png.toString('base64'));
+  });
+
+  test('an unmanaged attachment fails closed before any process spawn', async () => {
     const { binaryPath, options } = fakePiPaths('stream');
     const events: RuntimeTurnEvent[] = [];
     await runtime.runTurn(
@@ -391,8 +426,36 @@ describe('PiRpcRuntime turns', () => {
       connectionFor(binaryPath),
       event => events.push(event),
     );
+    const error = events.find(event => event.type === 'error') as { diagnostic?: string; message?: string } | undefined;
+    expect(error?.diagnostic).toBe('pi_attachments_invalid');
+    expect(error?.message).toContain('附件');
+    expect(fs.existsSync(options.markerPath)).toBe(false);
+  });
+
+  test('a stale frozen attachment (file deleted) fails closed before spawn', async () => {
+    const { binaryPath, options } = fakePiPaths('stream');
+    const vaultDir = path.join(tempDir, 'vault-stale');
+    fs.mkdirSync(vaultDir, { recursive: true });
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    const frozen = freezeVerifiedImageAttachment({
+      vaultPath: 'shot.png',
+      vaultRoot: vaultDir,
+      body: png,
+      mimeType: 'image/png',
+      env: { AILU_HOME: tempDir, PATH: process.env.PATH ?? '' },
+    });
+    fs.rmSync(frozen.absolutePath, { force: true });
+    const events: RuntimeTurnEvent[] = [];
+    await runtime.runTurn(
+      baseRequest({ attachments: [frozen] }),
+      connectionFor(binaryPath),
+      event => events.push(event),
+    );
     const error = events.find(event => event.type === 'error') as { diagnostic?: string } | undefined;
-    expect(error?.diagnostic).toBe('pi_attachments_not_supported');
+    expect(error?.diagnostic).toBe('pi_attachments_invalid');
     expect(fs.existsSync(options.markerPath)).toBe(false);
   });
 

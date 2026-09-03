@@ -10,6 +10,7 @@ import {
   piFollowLocalLabel,
   piModelKey,
   reconcilePiThinkingLevel,
+  resolvePiAttachmentPreflight,
   resolvePiSendModelGuard,
 } from '../src/runtime/piModels';
 
@@ -153,6 +154,32 @@ describe('resolvePiSendModelGuard', () => {
   test('a bare saved id still resolves when uniquely available', () => {
     const guard = resolvePiSendModelGuard({ selectedModel: 'plain-model', status: readyStatus });
     expect(guard.blocked).toBe(false);
+  });
+});
+
+describe('resolvePiAttachmentPreflight', () => {
+  test('allows turns without attachments regardless of model', () => {
+    expect(resolvePiAttachmentPreflight({ attachments: [], model: null }).blocked).toBe(false);
+    expect(resolvePiAttachmentPreflight({ attachments: [], model: models[0] }).blocked).toBe(false);
+  });
+
+  test('allows image-capable models and blocks text-only models', () => {
+    const vision = findPiModel(models, 'deepseek/deepseek-v4-flash-vision-exp');
+    const textOnly = findPiModel(models, 'deepseek/deepseek-v4-flash');
+    expect(resolvePiAttachmentPreflight({
+      attachments: [{}],
+      model: vision,
+    }).blocked).toBe(false);
+    const blocked = resolvePiAttachmentPreflight({ attachments: [{}], model: textOnly });
+    expect(blocked.blocked).toBe(true);
+    expect(blocked.message).toContain('移除图片附件');
+    expect(blocked.message).toContain('模型');
+  });
+
+  test('blocks when the effective model cannot be verified', () => {
+    const blocked = resolvePiAttachmentPreflight({ attachments: [{}], model: null });
+    expect(blocked.blocked).toBe(true);
+    expect(blocked.message).toContain('无法确认');
   });
 });
 

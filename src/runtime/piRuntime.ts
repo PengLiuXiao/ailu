@@ -1,9 +1,11 @@
 import fs from 'fs';
+import fsp from 'fs/promises';
 import path from 'path';
 import { EventEmitter } from 'events';
 
 import type {
   ChatTurnRequest,
+  FileAttachment,
   PiRuntimeStatus,
   RuntimeBinarySource,
   RuntimeTurnEvent,
@@ -158,18 +160,25 @@ export class PiRpcRuntime extends EventEmitter {
     listener: (event: RuntimeTurnEvent) => void,
   ): Promise<void> {
     const runtimeRequest = isolatePiRequest(request);
-    if (runtimeRequest.attachments?.length) {
+    let frozenAttachments: FileAttachment[] = [];
+    try {
+      // Re-validates the managed frozen copies (identity, size, root) so a
+      // stale or tampered attachment fails before any process spawns.
+      frozenAttachments = assertManagedFrozenAttachments(
+        runtimeRequest.attachments ?? [],
+        runtimeRequest.cwd,
+        connection.env,
+      );
+    } catch (error) {
       listener({
         type: 'error',
-        message: 'Pi 当前尚未支持图片附件，请移除附件后重试。',
-        diagnostic: 'pi_attachments_not_supported',
+        message: '图片附件校验失败，本次未启动。',
+        detail: `${String(error)} 请移除附件后重新添加，再发送。`,
+        diagnostic: 'pi_attachments_invalid',
       });
       listener({ type: 'done' });
       return;
     }
-    // The assert re-validates the managed frozen copies even though Pi cannot
-    // consume them yet, so a malformed attachment list fails before spawn.
-    assertManagedFrozenAttachments(runtimeRequest.attachments ?? [], runtimeRequest.cwd, connection.env);
 
     const sessionDir = piSessionDir(connection.env);
     try {
@@ -483,8 +492,25 @@ export class PiRpcRuntime extends EventEmitter {
       return;
     }
 
+    let promptImages: Array<Record<string, unknown>> = [];
     try {
-      await active.client.request({ type: 'prompt', message: prompt }, PI_ABORT_COMPLETION_TIMEOUT_MS);
+      promptImages = await readPiAttachmentImages(frozenAttachments);
+    } catch (error) {
+      finish({
+        type: 'error',
+        message: '读取图片附件失败，本回合已停止。',
+        detail: `${String(error)} 请移除附件后重新添加，再发送。`,
+        diagnostic: 'pi_attachments_invalid',
+      });
+      return;
+    }
+
+    try {
+      await active.client.request({
+        type: 'prompt',
+        message: prompt,
+        ...(promptImages.length > 0 ? { images: promptImages } : {}),
+      }, PI_ABORT_COMPLETION_TIMEOUT_MS);
     } catch (error) {
       if (active.settled) return;
       finish({
@@ -662,6 +688,27 @@ export function buildPiTurnArgs(request: ChatTurnRequest, sessionDir: string): s
   const thinking = request.reasoningEffort?.trim();
   if (thinking) args.push('--thinking', thinking);
   return args;
+}
+
+/** Base64-encodes the immutable managed copies into Pi image content blocks. */
+async function readPiAttachmentImages(
+  attachments: readonly FileAttachment[],
+): Promise<Array<Record<string, unknown>>> {
+  const images: Array<Record<string, unknown>> = [];
+  let encodedBytes = 0;
+  for (const attachment of attachments) {
+    const body = await fsp.readFile(attachment.absolutePath);
+    encodedBytes += body.byteLength;
+    if (encodedBytes > 64 * 1_024 * 1_024) {
+      throw new Error('图片附件总量超出安全上限。');
+    }
+    images.push({
+      type: 'image',
+      data: body.toString('base64'),
+      mimeType: attachment.mimeType ?? 'application/octet-stream',
+    });
+  }
+  return images;
 }
 
 export function composePiPrompt(request: ChatTurnRequest): string {

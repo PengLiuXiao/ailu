@@ -63,6 +63,7 @@ import {
   piFollowLocalLabel,
   reconcilePiThinkingLevel,
   resolvePiSendModelGuard,
+  resolvePiAttachmentPreflight,
   type PiSendModelGuard,
 } from '../runtime/piModels';
 import {
@@ -3164,6 +3165,16 @@ export class AiluChatView extends ItemView {
       .filter(Boolean)
       .join('\n\n');
     const attachments = mergeAttachments([...resolvedAttachments, ...activeContext.attachments]);
+    if (agentId === 'pi' && attachments.length > 0) {
+      const preflight = resolvePiAttachmentPreflight({
+        attachments,
+        model: this.getSelectedPiModel(settings),
+      });
+      if (preflight.blocked) {
+        new Notice(preflight.message ?? '当前 Pi 模型不支持图片附件。');
+        return;
+      }
+    }
     const userMessage: ChatMessage = {
       id: createId('msg'),
       role: 'user',
