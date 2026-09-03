@@ -19,6 +19,7 @@ import {
   AILU_BRIDGE_ACTIVE_NOTIFY,
   ensurePiBridgeExtension,
   parseAiluPermissionRequest,
+  PI_READ_ONLY_TOOLS,
 } from './piBridgeExtension';
 import {
   parsePiModelsResponse,
@@ -452,7 +453,7 @@ export class PiRpcRuntime extends EventEmitter {
      * an empty session file (Pi recreates missing sessions with the same id).
      */
     const bridgeConfig = {
-      fullAccess: runtimeRequest.fullAccess === true,
+      fullAccess: runtimeRequest.fullAccess === true && runtimeRequest.planMode !== true,
       planMode: runtimeRequest.planMode === true,
     };
     let bridgePath: string | null = null;
@@ -784,6 +785,23 @@ export function buildPiTurnArgs(
       '--no-prompt-templates',
       '--no-themes',
       '--no-context-files',
+    );
+  } else if (request.planMode === true) {
+    // Plan mode is a hard read-only boundary: only approved read/search/list
+    // tools exist for the model, discovery is fully disabled, and project
+    // trust is explicitly declined for the run. The bridge (-e) still loads
+    // and blocks anything that slips past the allowlist.
+    args.push(
+      '--session-dir',
+      sessionDir,
+      ...(request.sessionId?.trim() ? ['--session-id', request.sessionId.trim()] : []),
+      '--tools',
+      [...PI_READ_ONLY_TOOLS].join(','),
+      '--no-extensions',
+      '--no-skills',
+      '--no-prompt-templates',
+      '--no-themes',
+      '--no-approve',
     );
   } else {
     args.push('--session-dir', sessionDir);

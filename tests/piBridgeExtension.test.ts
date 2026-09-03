@@ -51,7 +51,7 @@ async function loadBridge(config: { fullAccess?: boolean; planMode?: boolean }):
   const ui: FakeUi = { selectCalls: [], notifyCalls: [], nextChoice: undefined };
   try {
     // The generated bridge is exercised as a real module on purpose.
-    // eslint-disable-next-line no-unsanitized/method
+    // eslint-disable-next-line no-unsanitized/method -- the fixture path is written by this test
     const module_ = (await import(file)) as {
       default: (pi: { on: (name: string, handler: CapturedHandler['handler']) => void }) => void;
     };

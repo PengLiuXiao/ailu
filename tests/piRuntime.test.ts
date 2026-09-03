@@ -205,6 +205,23 @@ describe('PiRpcRuntime turn flags', () => {
     expect(args).not.toContain('--session-id');
   });
 
+  test('plan mode allows only approved read/search/list tools and declines project trust', () => {
+    const args = buildPiTurnArgs(
+      baseRequest({ planMode: true, fullAccess: true, sessionId: 'pi-session-1' }),
+      '/ailu-home/pi-sessions',
+    );
+    expect(args).toContain('--tools');
+    expect(args[args.indexOf('--tools') + 1]).toBe('read,grep,find,ls');
+    expect(args).toContain('--no-extensions');
+    expect(args).toContain('--no-skills');
+    expect(args).toContain('--no-approve');
+    expect(args).not.toContain('--approve');
+    expect(args).not.toContain('-a');
+    expect(args).toContain('--session-dir');
+    expect(args).toContain('--session-id');
+    expect(args).not.toContain('--no-tools');
+  });
+
   test('the system prompt is embedded ahead of the user prompt', () => {
     expect(composePiPrompt(baseRequest({ systemPrompt: 'Be terse.' }))).toBe('Be terse.\n\nhello');
     expect(composePiPrompt(baseRequest())).toBe('hello');
@@ -417,6 +434,28 @@ describe('PiRpcRuntime turns', () => {
       expect.objectContaining({ type: 'extension_ui_response', id: 'perm-1', cancelled: true }),
     );
   }, 15_000);
+
+  test('a plan turn runs with the bridge in plan mode and completes read-only', async () => {
+    const { binaryPath, options } = fakePiPaths('stream');
+    const events: RuntimeTurnEvent[] = [];
+    await runtime.runTurn(
+      baseRequest({ planMode: true, fullAccess: true }),
+      connectionFor(binaryPath),
+      event => events.push(event),
+    );
+    const argv = JSON.parse(
+      fs.readFileSync(options.markerPath, 'utf8').trim().split('\n')[0],
+    ) as string[];
+    expect(argv).toContain('--tools');
+    expect(argv[argv.indexOf('--tools') + 1]).toBe('read,grep,find,ls');
+    expect(argv).toContain('--no-approve');
+    const text = events
+      .filter((event): event is { type: 'text'; content: string } => event.type === 'text')
+      .map(event => event.content)
+      .join('');
+    expect(text).toBe('你好，Pi');
+    expect(events).not.toContainEqual(expect.objectContaining({ type: 'permission' }));
+  });
 
   test('fails closed before the prompt when the permission bridge never loads', async () => {
     const { binaryPath, options } = fakePiPaths('stream', { bridgeActive: false });

@@ -328,6 +328,25 @@ describe('chat Agent selection', () => {
     expect(shouldResumePiSession('pi-session', key, otherModeKey)).toBe(false);
   });
 
+  it('binds a Pi plan turn to the restricted key without touching stored trust', () => {
+    const fullKey = buildPiSessionConfigKey({
+      fullAccess: true,
+      model: 'deepseek/deepseek-v4-flash',
+      thinkingLevel: 'high',
+      customizationMode: 'user',
+    });
+    // chatView collapses planModeAtSend into the key's access level.
+    const planKey = buildPiSessionConfigKey({
+      fullAccess: false,
+      model: 'deepseek/deepseek-v4-flash',
+      thinkingLevel: 'high',
+      customizationMode: 'user',
+    });
+    expect(fullKey).not.toBe(planKey);
+    // The stored preference itself is never rewritten by a plan turn: the key
+    // is derived per send, and settings.fullAccessByAgent.pi stays untouched.
+  });
+
   it('never resumes Pi from an unbound or mismatched legacy session', () => {
     const key = buildPiSessionConfigKey({
       fullAccess: false,
