@@ -3150,7 +3150,7 @@ export class AiluChatView extends ItemView {
         fullAccess: settings.fullAccessByAgent.pi && !planModeAtSend,
         model: modelOverride ?? '',
         thinkingLevel: reasoningEffort,
-        customizationMode: 'user',
+        customizationMode: settings.piCustomizationMode ?? 'user',
       })
       : '';
     const sessionConfigKey = agentId === 'claude'
@@ -3298,6 +3298,7 @@ export class AiluChatView extends ItemView {
           ccSwitchSessionFingerprint: ccSwitchSessionConfig?.routeFingerprint,
           model: runtimeModel,
           reasoningEffort: reasoningEffort || undefined,
+          ...(agentId === 'pi' ? { piCustomizationMode: settings.piCustomizationMode ?? 'user' } : {}),
           sessionId: preparedContext.sessionId,
           freshSessionPrompt: preparedContext.freshSessionPrompt,
           allowFreshSessionFallback: preparedContext.allowFreshSessionFallback,

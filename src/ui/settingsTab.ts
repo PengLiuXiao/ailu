@@ -19,6 +19,7 @@ import type {
   AiluSettings,
 } from '../types';
 import { RuntimeDiscovery, invalidateRuntimeDiscoveryCache } from '../runtime/discovery';
+import { normalizePiCustomizationMode } from '../settings/agentSettings';
 import {
   ccSwitchRouteSummary,
   ccSwitchGlobalSnapshot,
@@ -768,6 +769,29 @@ export class AiluSettingTab extends PluginSettingTab {
     }
 
     if (agentId === 'pi') {
+      new Setting(section)
+        .setName('定制与信任')
+        .setDesc('控制 Pi 回合加载哪些扩展、技能与项目资源。切换后，下一次发送会开启新的 Pi 会话。')
+        .addDropdown(dropdown => {
+          dropdown
+            .addOption('isolated', '隔离模式（不加载任何扩展/技能/模板）')
+            .addOption('user', '用户配置（仅 ~/.pi 用户资源）')
+            .addOption('trustedVault', '信任当前 Vault（加载 .pi 项目资源）')
+            .setValue(settings.piCustomizationMode ?? 'user')
+            .onChange(async value => {
+              settings.piCustomizationMode = normalizePiCustomizationMode(value);
+              await this.deps.saveSettings();
+              this.deps.refreshViews();
+              this.display();
+            });
+        });
+      if ((settings.piCustomizationMode ?? 'user') === 'trustedVault') {
+        const warning = section.createDiv({ cls: 'ailu-setting-warning' });
+        warning.createEl('strong', { text: '注意：信任当前 Vault 的加载时风险' });
+        warning.createEl('p', {
+          text: '开启后，Vault 内 .pi 目录中的项目扩展会在 Pi 启动时立即执行，早于任何工具确认。仅在完全信任此 Vault 全部内容时选择；若扩展导致 Pi 启动失败，切回“隔离模式”即可恢复。',
+        });
+      }
       this.renderPiRpcStatus(section, status);
       return;
     }

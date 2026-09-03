@@ -15,7 +15,13 @@ export type CanonicalAgentSettings = Pick<
   | 'reasoningEffortByAgent'
   | 'fullAccessByAgent'
   | 'creativeSkillNames'
+  | 'piCustomizationMode'
 >;
+
+/** Unknown or retired Pi customization modes fall back to the user scope. */
+export function normalizePiCustomizationMode(value: unknown): 'isolated' | 'user' | 'trustedVault' {
+  return value === 'isolated' || value === 'trustedVault' ? value : 'user';
+}
 
 /** Rebuilds every per-agent map so retired or unknown keys are never persisted again. */
 export function normalizeAgentSettings(
@@ -77,6 +83,7 @@ export function normalizeAgentSettings(
     },
     fullAccessByAgent: normalizeFullAccessByAgent(value?.fullAccessByAgent),
     creativeSkillNames: normalizeSelectedSkillNames(value?.creativeSkillNames),
+    piCustomizationMode: normalizePiCustomizationMode(value?.piCustomizationMode),
   };
 }
 
@@ -95,6 +102,7 @@ export function canonicalizeStoredAgentSettings(
     reasoningEffortByAgent: normalized.reasoningEffortByAgent,
     fullAccessByAgent: normalized.fullAccessByAgent,
     creativeSkillNames: normalized.creativeSkillNames,
+    piCustomizationMode: normalized.piCustomizationMode,
   };
   delete canonical.sharedEnvironmentVariables;
   return canonical;

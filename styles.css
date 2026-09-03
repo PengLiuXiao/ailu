@@ -7326,3 +7326,17 @@ button.ailu-feishu-destination-tree-main:focus-visible {
   border: none;
   padding: 0;
 }
+
+.ailu-setting-warning {
+  margin: 4px 0 12px 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--text-warning);
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-smaller);
+}
+
+.ailu-setting-warning p {
+  margin: 4px 0 0 0;
+  color: var(--text-muted);
+}

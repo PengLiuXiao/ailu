@@ -147,6 +147,7 @@ export class RuntimeManager {
       | 'textOnly'
       | 'purpose'
       | 'allowFreshSessionFallback'
+      | 'piCustomizationMode'
     >,
   ): RuntimeExecutionFingerprint {
     if (!isSupportedRuntimeAgentId(request.agentId)) {
@@ -761,6 +762,7 @@ export class RuntimeManager {
       | 'textOnly'
       | 'purpose'
       | 'allowFreshSessionFallback'
+      | 'piCustomizationMode'
       | 'executionFingerprint'
       | 'providerProfileUpdatedAt'
     >,
@@ -800,6 +802,7 @@ export class RuntimeManager {
       | 'textOnly'
       | 'purpose'
       | 'allowFreshSessionFallback'
+      | 'piCustomizationMode'
     >,
   ): { payload: string; providerProfileUpdatedAt: number | undefined } {
     if (!isSupportedRuntimeAgentId(request.agentId)) {
@@ -835,6 +838,7 @@ export class RuntimeManager {
         textOnly: request.textOnly === true,
         purpose: request.purpose ?? 'chat',
         allowFreshSessionFallback: request.allowFreshSessionFallback === true,
+        piCustomizationMode: request.piCustomizationMode ?? 'user',
       },
       live: {
         configSource: settings.configSources[request.agentId],

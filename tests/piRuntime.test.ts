@@ -181,7 +181,13 @@ function baseRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
 describe('PiRpcRuntime turn flags', () => {
   test('normal turns use the private session directory and resume by id', () => {
     const args = buildPiTurnArgs(baseRequest({ sessionId: 'stored-session' }), '/ailu-home/pi-sessions');
-    expect(args).toEqual(['--session-dir', '/ailu-home/pi-sessions', '--session-id', 'stored-session']);
+    expect(args).toEqual([
+      '--session-dir',
+      '/ailu-home/pi-sessions',
+      '--session-id',
+      'stored-session',
+      '--no-approve',
+    ]);
   });
 
   test('model and thinking overrides become CLI flags', () => {
@@ -220,6 +226,34 @@ describe('PiRpcRuntime turn flags', () => {
     expect(args).toContain('--session-dir');
     expect(args).toContain('--session-id');
     expect(args).not.toContain('--no-tools');
+  });
+
+  test('customization modes map to distinct runtime behaviour', () => {
+    const isolatedArgs = buildPiTurnArgs(
+      baseRequest({ piCustomizationMode: 'isolated' }),
+      '/ailu-home/pi-sessions',
+    );
+    expect(isolatedArgs).toContain('--no-extensions');
+    expect(isolatedArgs).toContain('--no-skills');
+    expect(isolatedArgs).toContain('--no-context-files');
+    expect(isolatedArgs).toContain('--no-approve');
+    expect(isolatedArgs).not.toContain('--approve');
+
+    const userArgs = buildPiTurnArgs(
+      baseRequest({ piCustomizationMode: 'user' }),
+      '/ailu-home/pi-sessions',
+    );
+    expect(userArgs).toContain('--no-approve');
+    expect(userArgs).not.toContain('--no-extensions');
+    expect(userArgs).not.toContain('--approve');
+
+    const trustedArgs = buildPiTurnArgs(
+      baseRequest({ piCustomizationMode: 'trustedVault' }),
+      '/ailu-home/pi-sessions',
+    );
+    expect(trustedArgs).toContain('--approve');
+    expect(trustedArgs).not.toContain('--no-approve');
+    expect(trustedArgs).not.toContain('--no-extensions');
   });
 
   test('the system prompt is embedded ahead of the user prompt', () => {
@@ -455,6 +489,24 @@ describe('PiRpcRuntime turns', () => {
       .join('');
     expect(text).toBe('你好，Pi');
     expect(events).not.toContainEqual(expect.objectContaining({ type: 'permission' }));
+  });
+
+  test('an extension load failure names isolation as the recovery path', async () => {
+    const binaryPath = path.join(tempDir, 'pi-broken-extension');
+    fs.writeFileSync(
+      binaryPath,
+      '#!/bin/sh\necho "failed to load extension /Users/x/.pi/agent/extensions/broken.ts" >&2\nexit 1\n',
+      { mode: 0o755 },
+    );
+    const events: RuntimeTurnEvent[] = [];
+    await runtime.runTurn(baseRequest(), connectionFor(binaryPath), event => events.push(event));
+    const error = events.find(event => event.type === 'error') as {
+      diagnostic?: string;
+      detail?: string;
+    } | undefined;
+    expect(error?.diagnostic).toBe('pi_customization_failed');
+    expect(error?.detail).toContain('broken.ts');
+    expect(error?.detail).toContain('隔离模式');
   });
 
   test('fails closed before the prompt when the permission bridge never loads', async () => {

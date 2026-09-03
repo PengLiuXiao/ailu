@@ -246,9 +246,18 @@ export interface ChatTurnRequest {
   allowFreshSessionFallback?: boolean;
   /** Process-local diagnostic binding to the checkpoint used for this request. */
   contextCheckpointId?: string;
+  /** Pi customization scope for this turn; omitted follows user defaults. */
+  piCustomizationMode?: PiCustomizationMode;
   /** Cancels only this runtime turn without stopping other active agents. */
   signal?: AbortSignal;
 }
+
+/**
+ * Pi customization scope for a turn: isolated (nothing loads), user (~/.pi
+ * user resources only), or trustedVault (also loads project-local .pi
+ * resources, which execute at load time before any tool confirmation).
+ */
+export type PiCustomizationMode = 'isolated' | 'user' | 'trustedVault';
 
 /** Interactive Pi tool-permission decision returned to the runtime bridge. */
 export type PiPermissionDecision = 'allow-once' | 'allow-turn' | 'deny' | 'dismissed';
@@ -398,6 +407,8 @@ export interface AiluSettings {
   fullAccessByAgent: FullAccessByAgent;
   /** Names of locally discovered Skills explicitly enabled by this user. */
   creativeSkillNames: string[];
+  /** Pi customization scope used for ordinary Pi turns. */
+  piCustomizationMode: PiCustomizationMode;
   systemPrompt: string;
   planModeDefault: boolean;
   maxContextFileChars: number;
@@ -477,6 +488,7 @@ export const DEFAULT_SETTINGS: AiluSettings = {
   reasoningEffortByAgent: DEFAULT_REASONING_EFFORTS,
   fullAccessByAgent: DEFAULT_FULL_ACCESS,
   creativeSkillNames: [],
+  piCustomizationMode: 'user',
   systemPrompt: '',
   planModeDefault: false,
   maxContextFileChars: 40_000,

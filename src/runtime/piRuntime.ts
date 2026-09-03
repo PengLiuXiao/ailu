@@ -333,7 +333,7 @@ export class PiRpcRuntime extends EventEmitter {
             type: 'diagnostic',
             code: 'pi_extension_error',
             message: `Pi 扩展 ${safeText(event.extensionPath, '未知来源')} 在 ${safeText(event.event, '未知事件')} 中出错。`,
-            detail: typeof event.error === 'string' ? event.error : JSON.stringify(event.error ?? null),
+            detail: `${typeof event.error === 'string' ? event.error : JSON.stringify(event.error ?? null)}\n\n恢复方式：在 设置 → Pi → 定制与信任 中切换为“隔离模式”后重试。`,
           });
           return;
         }
@@ -511,13 +511,23 @@ export class PiRpcRuntime extends EventEmitter {
     const failConnect = (error: unknown, connectClient: PiRpcClient): void => {
       const detail = connectClient.lastStderrTail || String(error);
       const unsupported = /--mode|unknown option|unrecognized/i.test(detail);
+      const extensionFailure = /extension|\.mjs|\.ts\b/i.test(detail) && !unsupported;
+      const detailWithRecovery = extensionFailure
+        ? `${detail}\n\n可能是 Pi 扩展或配置加载失败（见上方来源路径）。可在 设置 → Pi → 定制与信任 中切换为“隔离模式”后重试。`
+        : detail;
       finish({
         type: 'error',
         message: unsupported
           ? '当前 Pi 版本不支持 RPC 模式，请升级 Pi 后重试。'
-          : '无法启动 Pi RPC 进程，本次未发送。',
-        detail,
-        diagnostic: unsupported ? 'pi_rpc_unsupported' : 'pi_rpc_start_failed',
+          : extensionFailure
+            ? 'Pi 启动时加载扩展或配置失败，本次未发送。'
+            : '无法启动 Pi RPC 进程，本次未发送。',
+        detail: detailWithRecovery,
+        diagnostic: unsupported
+          ? 'pi_rpc_unsupported'
+          : extensionFailure
+            ? 'pi_customization_failed'
+            : 'pi_rpc_start_failed',
       });
     };
 
@@ -806,6 +816,23 @@ export function buildPiTurnArgs(
   } else {
     args.push('--session-dir', sessionDir);
     if (request.sessionId?.trim()) args.push('--session-id', request.sessionId.trim());
+    // Customization scope. `--no-approve` pins project-local resources off
+    // even when the user's own Pi defaults to always trusting projects;
+    // `--approve` trusts the Vault's .pi resources for this run only.
+    if (request.piCustomizationMode === 'isolated') {
+      args.push(
+        '--no-extensions',
+        '--no-skills',
+        '--no-prompt-templates',
+        '--no-themes',
+        '--no-context-files',
+        '--no-approve',
+      );
+    } else if (request.piCustomizationMode === 'trustedVault') {
+      args.push('--approve');
+    } else {
+      args.push('--no-approve');
+    }
   }
   if (bridgePath && request.textOnly !== true) args.push('-e', bridgePath);
   const model = request.model?.trim();
