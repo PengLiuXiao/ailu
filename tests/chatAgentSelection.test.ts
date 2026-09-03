@@ -63,21 +63,23 @@ function conversationWithTurn(
 describe('chat Agent selection', () => {
   it('recovers a fresh install to the only available Agent', () => {
     const settings = { defaultAgentId: 'claude' as const };
-    expect(resolveAvailableDefaultAgent(settings.defaultAgentId, { claude: false, codex: true }))
+    expect(resolveAvailableDefaultAgent(settings.defaultAgentId, { claude: false, codex: true, pi: false }))
       .toBe('codex');
     expect(settings.defaultAgentId).toBe('claude');
-    expect(resolveAvailableDefaultAgent('codex', { claude: true, codex: false })).toBe('claude');
+    expect(resolveAvailableDefaultAgent('codex', { claude: true, codex: false, pi: false })).toBe('claude');
   });
 
   it('keeps the preferred Agent when it is available or no runtime exists', () => {
-    expect(resolveAvailableDefaultAgent('codex', { claude: true, codex: true })).toBe('codex');
-    expect(resolveAvailableDefaultAgent('claude', { claude: false, codex: false })).toBe('claude');
+    expect(resolveAvailableDefaultAgent('codex', { claude: true, codex: true, pi: true })).toBe('codex');
+    expect(resolveAvailableDefaultAgent('claude', { claude: false, codex: false, pi: false })).toBe('claude');
+    expect(resolveAvailableDefaultAgent('pi', { claude: false, codex: true, pi: false })).toBe('codex');
   });
 
-  it('only exposes Claude and Codex for new conversations', () => {
-    expect(SELECTABLE_AGENT_IDS).toEqual(['claude', 'codex']);
+  it('only exposes Claude, Codex, and Pi for new conversations', () => {
+    expect(SELECTABLE_AGENT_IDS).toEqual(['claude', 'codex', 'pi']);
     expect(normalizeSelectableAgentId('other-agent')).toBe('claude');
     expect(normalizeSelectableAgentId('codex')).toBe('codex');
+    expect(normalizeSelectableAgentId('pi')).toBe('pi');
   });
 
   it('switches the visible Agent and persisted default together', () => {
@@ -122,8 +124,9 @@ describe('chat Agent selection', () => {
       } as {
         claude: 'localCli' | 'providerProfile';
         codex: 'localCli' | 'providerProfile';
+        pi: 'localCli';
       },
-      localModelByAgent: { claude: '', codex: '' },
+      localModelByAgent: { claude: '', codex: '', pi: '' },
     };
 
     applyLocalCliSelection(settings, 'claude', 'opus');
@@ -140,8 +143,9 @@ describe('chat Agent selection', () => {
       } as {
         claude: 'localCli' | 'providerProfile';
         codex: 'localCli' | 'providerProfile';
+        pi: 'localCli';
       },
-      localModelByAgent: { claude: '', codex: 'stale-model' },
+      localModelByAgent: { claude: '', codex: 'stale-model', pi: '' },
     };
 
     applyLocalCliSelection(settings, 'codex', 'ignored-model');
@@ -267,10 +271,12 @@ describe('chat Agent selection', () => {
     expect(normalizeFullAccessByAgent(undefined)).toEqual({
       claude: false,
       codex: false,
+      pi: false,
     });
     expect(normalizeFullAccessByAgent({ claude: true, codex: true })).toEqual({
       claude: true,
       codex: true,
+      pi: false,
     });
   });
 

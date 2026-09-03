@@ -11,6 +11,7 @@ import { ProviderStore } from '../storage/providerStore';
 import { buildRedactedDiagnosticBundle } from '../storage/localLog';
 import type {
   AgentId,
+  AgentStatus,
   AnthropicAuthMode,
   ProviderProfile,
   ProviderWireApi,
@@ -18,6 +19,7 @@ import type {
   AiluSettings,
 } from '../types';
 import { RuntimeDiscovery, invalidateRuntimeDiscoveryCache } from '../runtime/discovery';
+import { probePiRpcCapability, type PiRpcProbeResult } from '../runtime/piRpc';
 import {
   ccSwitchRouteSummary,
   ccSwitchGlobalSnapshot,
@@ -237,6 +239,8 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
 export class AiluSettingTab extends PluginSettingTab {
   private editingProfileId: string | null = null;
   private activeTab: SettingsTabId = 'general';
+  private piRpcProbe: PiRpcProbeResult | null = null;
+  private piRpcProbeInFlight = false;
   private selectedProviderKey = 'deepseek';
   private ccSwitchAutoRefreshRequested = false;
 
@@ -271,7 +275,9 @@ export class AiluSettingTab extends PluginSettingTab {
       return;
     }
     this.renderAgentSettings(panel, this.activeTab);
-    if (this.activeTab !== 'codex') this.renderProfiles(panel, this.activeTab);
+    if (getAgentDescriptor(this.activeTab).supportsProviderProfiles) {
+      this.renderProfiles(panel, this.activeTab);
+    }
     this.renderSkills(panel, this.activeTab);
   }
 
@@ -648,13 +654,15 @@ export class AiluSettingTab extends PluginSettingTab {
       };
     }
 
-    if (agentId === 'codex') {
+    if (agentId === 'codex' || agentId === 'pi') {
       const runtimeMode = new Setting(section)
         .setName('运行方式')
-        .setDesc('使用官方 ChatGPT / Codex 桌面应用内置的 App Server；模型与推理强度从本机实时读取。');
+        .setDesc(agentId === 'codex'
+          ? '使用官方 ChatGPT / Codex 桌面应用内置的 App Server；模型与推理强度从本机实时读取。'
+          : 'Ailu 为每个回合启动独立的 Pi RPC 进程；模型与思考级别跟随本机 Pi 配置，或在对话中显式选择。');
       runtimeMode.controlEl.createSpan({
         cls: 'ailu-readonly-value',
-        text: '本地 App Server',
+        text: agentId === 'codex' ? '本地 App Server' : '本地 RPC 进程',
       });
     } else {
       const configSourceSetting = new Setting(section)
@@ -701,12 +709,14 @@ export class AiluSettingTab extends PluginSettingTab {
           });
       });
 
-    if (agentId === 'claude' || agentId === 'codex') {
+    if (agentId === 'claude' || agentId === 'codex' || agentId === 'pi') {
       new Setting(section)
         .setName('普通对话完全访问')
         .setDesc(agentId === 'claude'
           ? '默认关闭。开启后，普通对话与行内修改会跳过 Claude Code 的文件编辑和命令权限确认；Plan 模式仍只规划。'
-          : '默认关闭。开启后，普通对话与行内修改可访问 Vault 外文件和网络，并使用全主机访问；Plan 模式仍只规划。')
+          : agentId === 'pi'
+            ? '默认关闭。开启后，普通对话跳过 Pi 的文件写入、命令执行与自定义工具确认；Plan 模式仍只规划。'
+            : '默认关闭。开启后，普通对话与行内修改可访问 Vault 外文件和网络，并使用全主机访问；Plan 模式仍只规划。')
         .addToggle(toggle => toggle
           .setValue(settings.fullAccessByAgent[agentId])
           .onChange(async value => {
@@ -760,6 +770,11 @@ export class AiluSettingTab extends PluginSettingTab {
       return;
     }
 
+    if (agentId === 'pi') {
+      this.renderPiRpcStatus(section, status);
+      return;
+    }
+
     if (agentId === 'claude' && settings.configSources.claude === 'ccSwitchCurrent') {
       return;
     }
@@ -786,17 +801,60 @@ export class AiluSettingTab extends PluginSettingTab {
       });
   }
 
+  private renderPiRpcStatus(section: HTMLElement, status: AgentStatus): void {
+    const renderProbeText = (): string => {
+      if (!status.binaryPath) return '未检测到 Pi CLI，请先安装 Pi 后重试。';
+      const probe = this.piRpcProbe;
+      if (!probe) return '尚未检测 Pi RPC 能力。';
+      if (probe.state === 'ready') return '已连接，Pi RPC 模式可用。';
+      const detail = probe.detail ? `（${probe.detail.slice(0, 300)}）` : '';
+      return `${probe.message}${detail}`;
+    };
+    new Setting(section)
+      .setName('Pi RPC 服务')
+      .setDesc(renderProbeText())
+      .addButton(button => button
+        .setButtonText('重新检测')
+        .onClick(async () => {
+          button.setDisabled(true);
+          await this.refreshPiRpcProbe(status);
+          this.display();
+        }));
+    if (status.binaryPath && !this.piRpcProbe && !this.piRpcProbeInFlight) {
+      void this.refreshPiRpcProbe(status).then(() => {
+        if (this.activeTab === 'pi') this.display();
+      });
+    }
+  }
+
+  private async refreshPiRpcProbe(status: AgentStatus): Promise<void> {
+    if (!status.binaryPath || this.piRpcProbeInFlight) return;
+    this.piRpcProbeInFlight = true;
+    try {
+      this.piRpcProbe = await probePiRpcCapability({
+        executablePath: status.binaryPath,
+        env: runtimeEnvironment(process.env, status.binaryPath),
+      });
+    } catch (error) {
+      this.piRpcProbe = {
+        state: 'unavailable',
+        message: '检测 Pi RPC 能力时出错。',
+        detail: String(error),
+      };
+    } finally {
+      this.piRpcProbeInFlight = false;
+    }
+  }
+
   private renderCcSwitchStatus(section: HTMLElement): void {
     const snapshot = ccSwitchGlobalSnapshot(this.deps.runtimeManager.getCcSwitchSnapshot());
     const currentLabel = ccSwitchSnapshotLabel(snapshot);
     const routeSummary = ccSwitchRouteSummary(snapshot);
     const state = snapshot.state;
     const statusText = state === 'ready'
-      ? snapshot.currentModel
-        ? `本机代理在线 · 当前模型：${snapshot.currentModel}`
-        : routeSummary
-          ? `本机代理在线 · Haiku / Sonnet / Opus 家族路由配置：${routeSummary} · 当前模型未确定`
-          : `本机代理在线 · 当前 Provider：${currentLabel}`
+      ? `本机代理在线 · ${currentLabel}${!snapshot.currentModel && routeSummary
+        ? ` · Haiku / Sonnet / Opus 家族路由：${routeSummary}`
+        : ''}`
       : state === 'error'
         ? `本机代理不可用：${userFacingErrorText(snapshot.error, '未返回可识别的错误详情。')}`
         : '尚未检查本机代理状态';

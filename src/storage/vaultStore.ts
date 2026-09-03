@@ -2183,7 +2183,7 @@ function requireMessageRole(value: unknown, source: string): MessageRole {
 }
 
 function requireAgentId(value: unknown, source: string): AgentId {
-  if (value === 'claude' || value === 'codex') return value;
+  if (value === 'claude' || value === 'codex' || value === 'pi') return value;
   throw corrupt(`${source} is invalid.`);
 }
 

@@ -9,7 +9,7 @@ import {
   type XPublishingSettings,
 } from './settings/xPublishingSettings';
 
-export type AgentId = 'claude' | 'codex';
+export type AgentId = 'claude' | 'codex' | 'pi';
 
 export type RuntimeConfigSource = 'localCli' | 'ccSwitchCurrent' | 'providerProfile';
 
@@ -383,31 +383,37 @@ export interface AiluSettings {
 export const DEFAULT_CONFIG_SOURCES: ConfigSourcesByAgent = {
   claude: 'localCli',
   codex: 'localCli',
+  pi: 'localCli',
 };
 
 export const DEFAULT_CONFIGURED_PATHS: ConfiguredPathsByAgent = {
   claude: '',
   codex: '',
+  pi: '',
 };
 
 export const DEFAULT_PROFILE_SELECTION: ProfileSelectionByAgent = {
   claude: '',
   codex: '',
+  pi: '',
 };
 
 export const DEFAULT_LOCAL_MODELS: LocalModelByAgent = {
   claude: '',
   codex: '',
+  pi: '',
 };
 
 export const DEFAULT_REASONING_EFFORTS: ReasoningEffortByAgent = {
   claude: '',
   codex: '',
+  pi: '',
 };
 
 export const DEFAULT_FULL_ACCESS: FullAccessByAgent = {
   claude: false,
   codex: false,
+  pi: false,
 };
 
 export function normalizeFullAccessByAgent(
@@ -416,6 +422,7 @@ export function normalizeFullAccessByAgent(
   return {
     claude: typeof value?.claude === 'boolean' ? value.claude : DEFAULT_FULL_ACCESS.claude,
     codex: typeof value?.codex === 'boolean' ? value.codex : DEFAULT_FULL_ACCESS.codex,
+    pi: typeof value?.pi === 'boolean' ? value.pi : DEFAULT_FULL_ACCESS.pi,
   };
 }
 

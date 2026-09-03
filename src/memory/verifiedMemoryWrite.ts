@@ -34,7 +34,7 @@ export type MemorySourceClass =
   | 'agent_inferred'
   | 'unknown';
 export type MemoryKnowledgeKind = 'fact' | 'preference' | 'rule' | 'inference' | 'hypothesis';
-export type MemoryAsserter = 'user' | 'claude' | 'codex';
+export type MemoryAsserter = 'user' | 'claude' | 'codex' | 'pi';
 
 export interface MemoryWriteCandidate {
   relativePath: string;

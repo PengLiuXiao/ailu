@@ -29,6 +29,7 @@ export function normalizeAgentSettings(
         ? claudeConfigSource
         : 'localCli',
       codex: 'localCli',
+      pi: 'localCli',
     },
     configuredPaths: {
       claude: typeof value?.configuredPaths?.claude === 'string'
@@ -37,6 +38,9 @@ export function normalizeAgentSettings(
       codex: typeof value?.configuredPaths?.codex === 'string'
         ? value.configuredPaths.codex
         : DEFAULT_SETTINGS.configuredPaths.codex,
+      pi: typeof value?.configuredPaths?.pi === 'string'
+        ? value.configuredPaths.pi
+        : DEFAULT_SETTINGS.configuredPaths.pi,
     },
     providerProfileByAgent: {
       claude: typeof value?.providerProfileByAgent?.claude === 'string'
@@ -45,6 +49,9 @@ export function normalizeAgentSettings(
       codex: typeof value?.providerProfileByAgent?.codex === 'string'
         ? value.providerProfileByAgent.codex
         : DEFAULT_SETTINGS.providerProfileByAgent.codex,
+      pi: typeof value?.providerProfileByAgent?.pi === 'string'
+        ? value.providerProfileByAgent.pi
+        : DEFAULT_SETTINGS.providerProfileByAgent.pi,
     },
     localModelByAgent: {
       claude: typeof value?.localModelByAgent?.claude === 'string'
@@ -53,6 +60,9 @@ export function normalizeAgentSettings(
       codex: typeof value?.localModelByAgent?.codex === 'string'
         ? value.localModelByAgent.codex
         : DEFAULT_SETTINGS.localModelByAgent.codex,
+      pi: typeof value?.localModelByAgent?.pi === 'string'
+        ? value.localModelByAgent.pi
+        : DEFAULT_SETTINGS.localModelByAgent.pi,
     },
     reasoningEffortByAgent: {
       claude: typeof value?.reasoningEffortByAgent?.claude === 'string'
@@ -61,6 +71,9 @@ export function normalizeAgentSettings(
       codex: typeof value?.reasoningEffortByAgent?.codex === 'string'
         ? value.reasoningEffortByAgent.codex
         : DEFAULT_SETTINGS.reasoningEffortByAgent.codex,
+      pi: typeof value?.reasoningEffortByAgent?.pi === 'string'
+        ? value.reasoningEffortByAgent.pi
+        : DEFAULT_SETTINGS.reasoningEffortByAgent.pi,
     },
     fullAccessByAgent: normalizeFullAccessByAgent(value?.fullAccessByAgent),
     creativeSkillNames: normalizeSelectedSkillNames(value?.creativeSkillNames),

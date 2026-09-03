@@ -6032,7 +6032,7 @@ function requireAgentId(value: unknown, source: string): AgentId {
 }
 
 function isAgentId(value: unknown): value is AgentId {
-  return value === 'claude' || value === 'codex';
+  return value === 'claude' || value === 'codex' || value === 'pi';
 }
 
 function assertUtf8ByteBudget(value: string, maximumBytes: number, source: string): void {

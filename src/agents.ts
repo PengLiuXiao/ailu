@@ -1,6 +1,6 @@
 import type { AgentDescriptor, AgentId } from './types';
 
-export const SELECTABLE_AGENT_IDS = ['claude', 'codex'] as const;
+export const SELECTABLE_AGENT_IDS = ['claude', 'codex', 'pi'] as const;
 export type SelectableAgentId = typeof SELECTABLE_AGENT_IDS[number];
 
 export const AGENT_DESCRIPTORS: Record<SelectableAgentId, AgentDescriptor> = {
@@ -28,6 +28,18 @@ export const AGENT_DESCRIPTORS: Record<SelectableAgentId, AgentDescriptor> = {
     supportsProviderProfiles: false,
     docsUrl: 'https://github.com/openai/codex',
   },
+  pi: {
+    id: 'pi',
+    displayName: 'Pi',
+    shortName: 'Pi',
+    packageName: '@earendil-works/pi-coding-agent',
+    binaryName: 'pi',
+    bestFor: 'Local Pi agent turns with explicit skill and permission control.',
+    supportsImages: true,
+    supportsInlineEdit: true,
+    supportsProviderProfiles: false,
+    docsUrl: 'https://pi.dev/docs/latest/quickstart',
+  },
 };
 
 export const AGENT_IDS: readonly SelectableAgentId[] = SELECTABLE_AGENT_IDS;
@@ -43,5 +55,5 @@ export function isAgentId(value: unknown): value is AgentId {
 }
 
 export function normalizeSelectableAgentId(value: unknown): SelectableAgentId {
-  return value === 'codex' ? 'codex' : 'claude';
+  return value === 'codex' || value === 'pi' ? value : 'claude';
 }

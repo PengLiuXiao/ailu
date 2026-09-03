@@ -11,7 +11,7 @@ import { executableSearchPath, runtimeEnvironment } from '../utils/env';
 import { executableFileExists } from '../utils/fs';
 import { resolveCodexDesktopBinary } from './codexDesktop';
 
-type SupportedRuntimeAgentId = 'claude' | 'codex';
+type SupportedRuntimeAgentId = 'claude' | 'codex' | 'pi';
 
 export interface RuntimeDiscoveryOptions {
   env?: NodeJS.ProcessEnv;
@@ -208,10 +208,15 @@ export class RuntimeDiscovery {
         path.join(home, '.claude', 'claude.json'),
         path.join(home, '.claude.json'),
       ]
-      : [
-        path.join(home, '.codex', 'config.toml'),
-        path.join(home, '.codex', 'auth.json'),
-      ];
+      : agentId === 'pi'
+        ? [
+          path.join(home, '.pi', 'agent', 'settings.json'),
+          path.join(home, '.pi', 'agent', 'auth.json'),
+        ]
+        : [
+          path.join(home, '.codex', 'config.toml'),
+          path.join(home, '.codex', 'auth.json'),
+        ];
     return candidates.some(candidate => {
       try {
         return fs.existsSync(candidate);
@@ -223,5 +228,5 @@ export class RuntimeDiscovery {
 }
 
 function isSupportedRuntimeAgentId(agentId: AgentId): agentId is SupportedRuntimeAgentId {
-  return agentId === 'claude' || agentId === 'codex';
+  return agentId === 'claude' || agentId === 'codex' || agentId === 'pi';
 }

@@ -52,7 +52,7 @@ describe('canonical agent settings', () => {
       normalized.reasoningEffortByAgent,
       normalized.fullAccessByAgent,
     ]) {
-      expect(Object.keys(value)).toEqual(['claude', 'codex']);
+      expect(Object.keys(value)).toEqual(['claude', 'codex', 'pi']);
     }
     expect(normalized).toMatchObject({
       configSources: { claude: 'ccSwitchCurrent', codex: 'localCli' },
@@ -102,7 +102,7 @@ describe('canonical agent settings', () => {
       'reasoningEffortByAgent',
       'fullAccessByAgent',
     ] as const) {
-      expect(Object.keys(canonical[key] as Record<string, unknown>)).toEqual(['claude', 'codex']);
+      expect(Object.keys(canonical[key] as Record<string, unknown>)).toEqual(['claude', 'codex', 'pi']);
     }
   });
 
@@ -110,12 +110,14 @@ describe('canonical agent settings', () => {
     expect(normalizeAgentSettings(null).fullAccessByAgent).toEqual({
       claude: false,
       codex: false,
+      pi: false,
     });
     expect(normalizeAgentSettings({
-      fullAccessByAgent: { claude: true, codex: true },
+      fullAccessByAgent: { claude: true, codex: true, pi: true },
     }).fullAccessByAgent).toEqual({
       claude: true,
       codex: true,
+      pi: true,
     });
   });
 });

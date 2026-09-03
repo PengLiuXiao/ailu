@@ -3933,6 +3933,7 @@ const HISTORY_SEARCH_DEBOUNCE_MS = 250;
 const HISTORY_AGENT_ICONS: Record<AgentId, string> = {
   claude: 'bot',
   codex: 'terminal',
+  pi: 'sparkles',
 };
 
 function formatRelativeTime(timestamp: number): string {

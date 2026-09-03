@@ -467,6 +467,7 @@ function appendCurrentPrompt(handoff: string, currentPrompt: string): string {
 
 function agentDisplayName(agentId: AgentId): string {
   if (agentId === 'claude') return 'Claude Code';
+  if (agentId === 'pi') return 'Pi';
   return 'Codex';
 }
 
