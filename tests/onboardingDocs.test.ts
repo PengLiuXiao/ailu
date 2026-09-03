@@ -15,7 +15,7 @@ const guide = fs.readFileSync(
 describe('complete onboarding documentation', () => {
   test('documents public Release and anonymous source installation', () => {
     expect(readme).toContain('GitHub Release');
-    expect(readme).toContain('git clone https://github.com/mcncarl/ailu.git');
+    expect(readme).toContain('git clone https://github.com/PengLiuXiao/ailu.git');
     expect(readme).toContain('商业使用：允许，但必须遵守 AGPL-3.0-or-later');
     expect(readme).toContain('商业部署、定制、培训与技术支持：可联系');
     expect(guide).toContain('公开仓库不需要 GitHub Token、Deploy Key 或账号登录');

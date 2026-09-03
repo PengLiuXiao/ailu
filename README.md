@@ -4,22 +4,22 @@
 ![Commercial use: permitted under AGPL](https://img.shields.io/badge/commercial_use-permitted_under_AGPL-2ea44f.svg)
 ![Commercial support: available](https://img.shields.io/badge/commercial_support-available-7c3aed.svg)
 
-Ailu 是一款桌面端 Obsidian 插件，把本地 Agent 对话、内容预览、公众号草稿上传、飞书文档同步和 X Article 草稿创建收进同一个简约工作台。显示名为 `Ailu`，插件 ID、包名、存储和 Agent Memory 身份统一为 `ailu`。
+Ailu 是一款桌面端 Obsidian 插件，把本地 Agent 对话（支持 Claude Code、Codex 和 Pi 三个 Agent）、内容预览、公众号草稿上传、飞书文档同步和 X Article 草稿创建收进同一个简约工作台。显示名为 `Ailu`，插件 ID、包名、存储和 Agent Memory 身份统一为 `ailu`。
 
 ## 当前分发状态
 
-Ailu 0.2.0 以公开源码和 [GitHub Release](https://github.com/mcncarl/ailu/releases/tag/0.2.0) 分发。普通用户优先安装 Release 中经过验证的 `main.js`、`manifest.json` 和 `styles.css`；GitHub 自动生成的 “Source code” 压缩包不包含被忽略的 `main.js` 与 `build-attestation.json`，不能直接当作 Obsidian 插件包使用。
+Ailu 0.3.0 以公开源码和 [GitHub Release](https://github.com/PengLiuXiao/ailu/releases/tag/0.3.0) 分发。普通用户优先安装 Release 中经过验证的 `main.js`、`manifest.json` 和 `styles.css`；GitHub 自动生成的 “Source code” 压缩包不包含 `main.js` 与 `build-attestation.json`，不能直接当作 Obsidian 插件包使用。
 
 当前可写功能的已验证支持范围是 macOS/POSIX。Windows 会 fail-closed 以只读模式启动，不执行 Agent 对话、行内修改、设置写入或部署。
 
 ## 从 Release 安装（推荐）
 
 1. 安装 Obsidian Desktop 1.11.4 或更高版本，并在目标 Vault 的“设置 → 第三方插件”中启用第三方插件。
-2. 从 [Ailu 0.2.0 Release](https://github.com/mcncarl/ailu/releases/tag/0.2.0) 下载 `main.js`、`manifest.json` 和 `styles.css`。可同时下载 `build-attestation.json`、`LICENSE` 与 `THIRD_PARTY_NOTICES.md` 核对构建和许可证。
+2. 从 [Ailu 0.3.0 Release](https://github.com/PengLiuXiao/ailu/releases/tag/0.3.0) 下载 `main.js`、`manifest.json` 和 `styles.css`。可同时下载 `build-attestation.json`、`LICENSE` 与 `THIRD_PARTY_NOTICES.md` 核对构建和许可证。
 3. 在目标 Vault 中创建 `.obsidian/plugins/ailu/`，把三个运行文件放入该目录；不要把 GitHub 的 Source code ZIP 直接放进去。
 4. 完全退出并重开 Obsidian，在“设置 → 第三方插件”中启用 Ailu，然后继续执行下方“首次启动验收”。
 
-Release 安装不需要 Node.js；核心写锁仍要求系统存在可执行的 `/usr/bin/python3`，Agent 对话仍要求至少安装并登录 Claude Code 或 Codex。需要自行审计源码、修改插件或使用受验证部署/回滚工具时，再采用下面的源码流程。
+Release 安装不需要 Node.js；核心写锁仍要求系统存在可执行的 `/usr/bin/python3`，Agent 对话仍要求至少安装并登录 Claude Code、Codex 或 Pi 三者之一。需要自行审计源码、修改插件或使用受验证部署/回滚工具时，再采用下面的源码流程。
 
 ## 从源码构建安装
 
@@ -28,7 +28,7 @@ Release 安装不需要 Node.js；核心写锁仍要求系统存在可执行的 
 - Obsidian Desktop 1.11.4 或更高版本；先打开目标 Vault，在“设置 → 第三方插件”中启用第三方插件，使 `.obsidian/plugins/` 和 `.obsidian/community-plugins.json` 完成初始化。
 - Node.js 22.13 或更高版本及 npm。
 - 核心写锁和部署器要求 `/usr/bin/python3` 可执行。这不是只有 X 流程才需要的可选依赖。
-- 安装当前受支持版本的 [Claude Code](https://code.claude.com/) 或 [Codex](https://github.com/openai/codex)，至少选择一个，并先在终端完成一次登录。
+- 安装当前受支持版本的 [Claude Code](https://code.claude.com/)、[Codex](https://github.com/openai/codex) 或 [Pi](https://pi.dev/docs/latest/quickstart)，至少选择一个，并先在终端完成一次登录。
 
 先核对前置条件：
 
@@ -36,13 +36,13 @@ Release 安装不需要 Node.js；核心写锁仍要求系统存在可执行的 
 node --version
 npm --version
 /usr/bin/python3 --version
-claude --version  # 或 codex --version
+claude --version  # 或 codex --version / pi --version
 ```
 
 ### 2. 克隆、审计并构建
 
 ```bash
-git clone https://github.com/mcncarl/ailu.git
+git clone https://github.com/PengLiuXiao/ailu.git
 cd ailu
 npm ci
 npm run audit:dependencies
@@ -70,7 +70,7 @@ npm run deploy:apply -- --vault "/Users/你的用户名/Documents/My Vault"
 ### 4. 首次启动验收
 
 1. 重开 Obsidian，在“设置 → 第三方插件”确认 Ailu 已启用。
-2. 打开“设置 → Ailu”，确认 Agent 行显示已就绪；若只安装了 Codex 或 Claude Code，Ailu 会自动选择已安装的那个。若两者都未找到，会直接打开安装引导。
+2. 打开“设置 → Ailu”，确认 Agent 行显示已就绪；若只安装了其中一个 Agent（Claude Code / Codex / Pi），Ailu 会自动选择已安装的那个。若两者都未找到，会直接打开安装引导。
 3. 如果终端里可用、Obsidian 中却显示未安装，在 Ailu 设置里配置真实可执行文件路径。通过 Finder 启动的 Obsidian 可能看不到 nvm、fnm、asdf 或 mise 的 shell shim；同时确保该 CLI 所需的 `node` 目录也对图形应用可见。
 4. 保持“完全访问”关闭，并先打开对话框中的 `Plan`。点击左侧 Ailu 图标，或使用命令面板 `Ailu: 打开对话`，发送：`只回复 OK，不读写任何文件。`
 5. 再打开一篇普通 Markdown，发送：`只读取当前笔记并概括三点，不修改文件。` 确认标题栏运行状态、回复和本地历史都正常。
