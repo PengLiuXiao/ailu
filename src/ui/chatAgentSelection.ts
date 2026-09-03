@@ -131,6 +131,41 @@ export function shouldResumeCodexSession(
   return Boolean(sessionId?.trim() && storedConfigKey && storedConfigKey === currentConfigKey);
 }
 
+export interface PiSessionConfigKeyInput {
+  /** Per-turn privilege level the session was created under. */
+  fullAccess: boolean;
+  /** Provider-prefixed model override; empty means follow-local. */
+  model: string;
+  /** Thinking level override; empty means follow-local. */
+  thinkingLevel: string;
+  /** Pi customization mode the session was created under (#8). */
+  customizationMode: string;
+}
+
+/**
+ * A Pi native session keeps provider-side state for one Ailu conversation.
+ * Bind continuation to the exact runtime shape so a mode or model change
+ * starts a fresh session instead of silently reusing an incompatible one.
+ */
+export function buildPiSessionConfigKey(input: PiSessionConfigKeyInput): string {
+  return JSON.stringify({
+    version: 1,
+    access: input.fullAccess === true ? 'full' : 'restricted',
+    model: input.model.trim(),
+    thinking: input.thinkingLevel.trim(),
+    customization: input.customizationMode,
+  });
+}
+
+/** Pi sessions without a matching configuration key are never resumed. */
+export function shouldResumePiSession(
+  sessionId: string | undefined,
+  storedConfigKey: string | undefined,
+  currentConfigKey: string,
+): boolean {
+  return Boolean(sessionId?.trim() && storedConfigKey && storedConfigKey === currentConfigKey);
+}
+
 /**
  * Decide whether the UI should pass a persisted session to the coordinator.
  *

@@ -9,6 +9,8 @@ import {
   resolveAvailableDefaultAgent,
   shouldAttemptSessionResume,
   shouldResumeClaudeSession,
+  buildPiSessionConfigKey,
+  shouldResumePiSession,
   shouldResumeCodexSession,
 } from '../src/ui/chatAgentSelection';
 import { normalizeSelectableAgentId, SELECTABLE_AGENT_IDS } from '../src/agents';
@@ -293,6 +295,49 @@ describe('chat Agent selection', () => {
     });
 
     expect(shouldResumeClaudeSession('session-1', before, after)).toBe(false);
+  });
+
+  it('binds Pi session continuation to the exact runtime shape', () => {
+    const key = buildPiSessionConfigKey({
+      fullAccess: false,
+      model: 'deepseek/deepseek-v4-flash',
+      thinkingLevel: 'high',
+      customizationMode: 'user',
+    });
+    expect(shouldResumePiSession('pi-session', key, key)).toBe(true);
+    const fullAccessKey = buildPiSessionConfigKey({
+      fullAccess: true,
+      model: 'deepseek/deepseek-v4-flash',
+      thinkingLevel: 'high',
+      customizationMode: 'user',
+    });
+    expect(shouldResumePiSession('pi-session', key, fullAccessKey)).toBe(false);
+    const otherModelKey = buildPiSessionConfigKey({
+      fullAccess: false,
+      model: 'deepseek/deepseek-v4-pro',
+      thinkingLevel: 'high',
+      customizationMode: 'user',
+    });
+    expect(shouldResumePiSession('pi-session', key, otherModelKey)).toBe(false);
+    const otherModeKey = buildPiSessionConfigKey({
+      fullAccess: false,
+      model: 'deepseek/deepseek-v4-flash',
+      thinkingLevel: 'high',
+      customizationMode: 'trustedVault',
+    });
+    expect(shouldResumePiSession('pi-session', key, otherModeKey)).toBe(false);
+  });
+
+  it('never resumes Pi from an unbound or mismatched legacy session', () => {
+    const key = buildPiSessionConfigKey({
+      fullAccess: false,
+      model: '',
+      thinkingLevel: '',
+      customizationMode: 'user',
+    });
+    expect(shouldResumePiSession(undefined, undefined, key)).toBe(false);
+    expect(shouldResumePiSession('pi-session', undefined, key)).toBe(false);
+    expect(shouldResumePiSession('pi-session', 'legacy', key)).toBe(false);
   });
 
   it('never resumes Codex across an access-mode change or from an unbound legacy session', () => {

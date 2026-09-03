@@ -357,6 +357,42 @@ describe('ChatContextService native-session handoff', () => {
     expect(store.commitCalls).toHaveLength(0);
   });
 
+  it('prepares a verified fresh-session handoff for a native Pi resume', async () => {
+    const conversation = withFreshSession(conversationFrom([
+      { agentId: 'pi', user: '记住文章标题。', assistant: '标题已记住。' },
+    ]), 'pi');
+    const store = new FakeContextStore(conversation);
+
+    const prepared = await service(store).prepare({
+      conversationId: conversation.id,
+      targetAgentId: 'pi',
+      currentPrompt: '继续写正文。',
+      resumeCandidate: 'pi-session',
+    });
+
+    expect(prepared.mode).toBe('native-resume');
+    expect(prepared.effectivePrompt).toBe('继续写正文。');
+    expect(prepared.sessionId).toBe('pi-session');
+    expect(prepared.allowFreshSessionFallback).toBe(true);
+    expect(prepared.freshSessionPrompt).toContain('记住文章标题');
+  });
+
+  it('hands off a Claude conversation to Pi with provider-neutral context', async () => {
+    const conversation = conversationFrom([
+      { agentId: 'claude', user: '决定把插件改成 Ailu。', assistant: '已经记录。' },
+    ]);
+    const store = new FakeContextStore(conversation);
+
+    const toPi = await service(store).prepare({
+      conversationId: conversation.id,
+      targetAgentId: 'pi',
+      currentPrompt: '请 Pi 继续。',
+    });
+    expect(toPi.mode).toBe('fresh-handoff');
+    expect(toPi.sessionId).toBeUndefined();
+    expect(toPi.effectivePrompt).toContain('决定把插件改成 Ailu');
+  });
+
   it('never carries a secret or absolute path from a stored checkpoint across Agents', async () => {
     let conversation = conversationFrom([
       { agentId: 'claude', user: '第一轮', assistant: '第一轮完成' },

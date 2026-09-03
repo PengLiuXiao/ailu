@@ -153,8 +153,11 @@ export class ChatContextService {
     const turnLimitReached = postCheckpointTurnCount >= this.checkpointTurnLimit;
 
     let source = deriveWindowSource(window);
-    const codexFallbackNeeded = canResume && input.targetAgentId === 'codex';
-    if (!source.safe && (needsFreshHandoff || turnLimitReached || codexFallbackNeeded)) {
+    // Codex provider threads and Pi native sessions can disappear underneath
+    // Ailu; both resume paths always carry a verified fresh-session handoff.
+    const nativeFallbackNeeded = canResume
+      && (input.targetAgentId === 'codex' || input.targetAgentId === 'pi');
+    if (!source.safe && (needsFreshHandoff || turnLimitReached || nativeFallbackNeeded)) {
       const full = await this.options.store.getConversation(conversationId);
       if (!full) throw new Error(`Conversation ${conversationId} was not found.`);
       source = deriveFullSource(full);
@@ -262,7 +265,7 @@ export class ChatContextService {
       };
     }
 
-    if (codexFallbackNeeded) {
+    if (nativeFallbackNeeded) {
       if (!source.safe) {
         const full = await this.options.store.getConversation(conversationId);
         if (!full) throw new Error(`Conversation ${conversationId} was not found.`);

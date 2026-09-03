@@ -90,6 +90,8 @@ import {
   shouldAttemptSessionResume,
   shouldResumeClaudeSession,
   shouldResumeCodexSession,
+  shouldResumePiSession,
+  buildPiSessionConfigKey,
 } from './chatAgentSelection';
 import { chatMessageRoleLabel, compactModelButtonLabel, reasoningEffortLabel } from './chatLabels';
 import {
@@ -2243,6 +2245,13 @@ export class AiluChatView extends ItemView {
         this.applyConversationSnapshot(delivery.snapshot);
         return;
       }
+      if (
+        delivery.event.type === 'runtime'
+        && delivery.event.event.type === 'diagnostic'
+        && delivery.event.event.code === 'pi_session_rebuilt'
+      ) {
+        new Notice(delivery.event.event.message);
+      }
       this.scheduleConversationSnapshotRefresh(conversationId, generation);
     });
     this.conversationWatch = watch;
@@ -3119,9 +3128,19 @@ export class AiluChatView extends ItemView {
         fullAccess: settings.fullAccessByAgent.codex && !planModeAtSend,
       })
       : '';
+    const piSessionConfigKey = agentId === 'pi'
+      ? buildPiSessionConfigKey({
+        fullAccess: settings.fullAccessByAgent.pi && !planModeAtSend,
+        model: modelOverride ?? '',
+        thinkingLevel: reasoningEffort,
+        customizationMode: 'user',
+      })
+      : '';
     const sessionConfigKey = agentId === 'claude'
       ? claudeSessionConfigKey
-      : codexSessionConfigKey;
+      : agentId === 'pi'
+        ? piSessionConfigKey
+        : codexSessionConfigKey;
     const runtimeModel = configSource === 'localCli'
       ? resolvedLocalClaudeModel?.cliModel || modelOverride
       : configSource === 'ccSwitchCurrent'
@@ -3169,11 +3188,17 @@ export class AiluChatView extends ItemView {
         conversation.sessionConfigKeys?.claude,
         claudeSessionConfigKey,
       ) ? storedSessionId : undefined
-      : shouldResumeCodexSession(
-        storedSessionId,
-        conversation.sessionConfigKeys?.codex,
-        codexSessionConfigKey,
-      ) ? storedSessionId : undefined;
+      : agentId === 'pi'
+        ? shouldResumePiSession(
+          storedSessionId,
+          conversation.sessionConfigKeys?.pi,
+          piSessionConfigKey,
+        ) ? storedSessionId : undefined
+        : shouldResumeCodexSession(
+          storedSessionId,
+          conversation.sessionConfigKeys?.codex,
+          codexSessionConfigKey,
+        ) ? storedSessionId : undefined;
     const sessionId = this.canResumeSession(conversation.id, agentId, resumeCandidate)
       ? resumeCandidate
       : undefined;

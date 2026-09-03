@@ -35,8 +35,11 @@ interface FakePiOptions {
   markerPath: string;
   stdinLogPath: string;
   pidPath: string;
-  behavior: 'stream' | 'hold' | 'exit' | 'agent-error' | 'oversize' | 'dialog';
+  behavior: 'stream' | 'hold' | 'exit' | 'agent-error' | 'oversize' | 'dialog' | 'corrupt';
+  /** Session id base; each spawn appends its index (pi-session-1, pi-session-2). */
   sessionId?: string;
+  /** get_state messageCount; 0 simulates a session Pi had to recreate. */
+  messageCount?: number;
   spawnDescendant?: boolean;
 }
 
@@ -45,7 +48,14 @@ function writeFakePi(executablePath: string, options: FakePiOptions): void {
     '#!/usr/bin/env node',
     "const fs = require('fs');",
     "const { spawn } = require('child_process');",
-    `fs.writeFileSync(${JSON.stringify(options.markerPath)}, JSON.stringify(process.argv));`,
+    "let spawnCount = 0;",
+    "try { spawnCount = fs.readFileSync(" + JSON.stringify(options.markerPath) + ", 'utf8').trim().split('\\n').filter(Boolean).length; } catch {}",
+    "spawnCount += 1;",
+    `fs.appendFileSync(${JSON.stringify(options.markerPath)}, JSON.stringify(process.argv) + '\\n');`,
+    "    if (" + JSON.stringify(options.behavior) + " === 'corrupt' && process.argv.includes('--session-id')) {",
+    "      console.error('failed to parse session file: unexpected token');",
+    "      process.exit(1);",
+    "    }",
     `fs.writeFileSync(${JSON.stringify(options.pidPath)}, String(process.pid));`,
     options.spawnDescendant
       ? `const descendant = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"], { stdio: 'ignore' });`
@@ -64,7 +74,10 @@ function writeFakePi(executablePath: string, options: FakePiOptions): void {
     `      fs.appendFileSync(${JSON.stringify(options.stdinLogPath)}, line + '\\n');`,
     "      const message = JSON.parse(line);",
     "      if (message.type === 'get_state') {",
-    `        writeEvent({ id: message.id, type: 'response', command: 'get_state', success: true, data: { sessionId: ${JSON.stringify(options.sessionId ?? 'pi-session-1')}, messageCount: 3, model: { id: 'deepseek-v4-flash', provider: 'deepseek' } } });`,
+    "        writeEvent({ id: message.id, type: 'response', command: 'get_state', success: true, data: { sessionId: '"
+      + (options.sessionId ?? 'pi-session') + "-' + spawnCount, messageCount: "
+      + String(options.messageCount ?? 3)
+      + ", model: { id: 'deepseek-v4-flash', provider: 'deepseek' } } });",
     "      } else if (message.type === 'get_available_models') {",
     "        writeEvent({ id: message.id, type: 'response', command: 'get_available_models', success: true, data: { models: [",
     "          { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', provider: 'deepseek', reasoning: true, input: ['text'], thinkingLevelMap: { minimal: null, low: 'low', high: 'high' } },",
@@ -90,6 +103,12 @@ function writeFakePi(executablePath: string, options: FakePiOptions): void {
     "          writeEvent({ type: 'extension_ui_request', id: 'ui-1', method: 'confirm', title: 'Some extension dialog' });",
     "        } else if (behavior === 'exit') {",
     "          process.exit(1);",
+    "        } else if (behavior === 'corrupt') {",
+    "          writeEvent({ type: 'agent_start' });",
+    "          writeEvent({ type: 'message_start' });",
+    "          writeEvent({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: '重建成功' } });",
+    "          writeEvent({ type: 'agent_end', messages: [{ role: 'assistant', stopReason: 'stop' }] });",
+    "          writeEvent({ type: 'agent_settled' });",
     "        }",
     "      } else if (message.type === 'abort') {",
     "        writeEvent({ id: message.id, type: 'response', command: 'abort', success: true });",
@@ -231,11 +250,81 @@ describe('PiRpcRuntime turns', () => {
     const { binaryPath, options } = fakePiPaths('stream');
     const events: RuntimeTurnEvent[] = [];
     await runtime.runTurn(baseRequest({ sessionId: 'pi-session-1' }), connectionFor(binaryPath), event => events.push(event));
-    const argv = JSON.parse(fs.readFileSync(options.markerPath, 'utf8')) as string[];
+    const argv = JSON.parse(
+      fs.readFileSync(options.markerPath, 'utf8').trim().split('\n')[0],
+    ) as string[];
     expect(argv).toContain('--session-id');
     expect(argv[argv.indexOf('--session-id') + 1]).toBe('pi-session-1');
     expect(argv).toContain('--session-dir');
     expect(argv[argv.indexOf('--session-dir') + 1]).toBe(path.join(tempDir, 'pi-sessions'));
+  });
+
+  test('restarts on a fresh private session when the stored session is missing', async () => {
+    const { binaryPath, options } = fakePiPaths('stream', { messageCount: 0 });
+    const events: RuntimeTurnEvent[] = [];
+    await runtime.runTurn(
+      baseRequest({
+        sessionId: 'pi-session-1',
+        freshSessionPrompt: 'AILU_HANDOFF: 记住文章标题。\n\n当前回合输入：\n继续写正文。',
+        allowFreshSessionFallback: true,
+      }),
+      connectionFor(binaryPath),
+      event => events.push(event),
+    );
+    const spawns = fs.readFileSync(options.markerPath, 'utf8').trim().split('\n')
+      .map(line => JSON.parse(line) as string[]);
+    expect(spawns).toHaveLength(2);
+    expect(spawns[0]).toContain('--session-id');
+    expect(spawns[1]).not.toContain('--session-id');
+    const diagnostics = events.filter(event => event.type === 'diagnostic') as Array<{ code: string }>;
+    expect(diagnostics.some(diagnostic => diagnostic.code === 'pi_session_rebuilt')).toBe(true);
+    expect(events).toContainEqual({ type: 'session', sessionId: 'pi-session-2' });
+    const done = events.find(event => event.type === 'done') as { sessionId?: string | null };
+    expect(done.sessionId).toBe('pi-session-2');
+    const promptLine = fs.readFileSync(options.stdinLogPath, 'utf8').trim().split('\n')
+      .map(line => JSON.parse(line) as { type: string; message?: string })
+      .find(message => message.type === 'prompt');
+    expect(promptLine?.message).toContain('AILU_HANDOFF');
+  });
+
+  test('continues on the recreated session when no verified fallback is available', async () => {
+    const { binaryPath, options } = fakePiPaths('stream', { messageCount: 0 });
+    const events: RuntimeTurnEvent[] = [];
+    await runtime.runTurn(
+      baseRequest({ sessionId: 'pi-session-1' }),
+      connectionFor(binaryPath),
+      event => events.push(event),
+    );
+    const spawns = fs.readFileSync(options.markerPath, 'utf8').trim().split('\n');
+    expect(spawns).toHaveLength(1);
+    const diagnostics = events.filter(event => event.type === 'diagnostic') as Array<{ code: string }>;
+    expect(diagnostics.some(diagnostic => diagnostic.code === 'pi_session_rebuilt')).toBe(true);
+    const done = events.find(event => event.type === 'done') as { sessionId?: string | null };
+    expect(done.sessionId).toBe('pi-session-1');
+  });
+
+  test('rebuilds instead of failing when the stored session file is corrupt', async () => {
+    const { binaryPath } = fakePiPaths('corrupt');
+    const events: RuntimeTurnEvent[] = [];
+    await runtime.runTurn(
+      baseRequest({
+        sessionId: 'pi-session-1',
+        freshSessionPrompt: 'AILU_HANDOFF: 上下文。\n\n当前回合输入：\n继续。',
+        allowFreshSessionFallback: true,
+      }),
+      connectionFor(binaryPath),
+      event => events.push(event),
+    );
+    const diagnostics = events.filter(event => event.type === 'diagnostic') as Array<{ code: string; message: string }>;
+    const rebuilt = diagnostics.find(diagnostic => diagnostic.code === 'pi_session_rebuilt');
+    expect(rebuilt?.message).toContain('损坏');
+    const text = events
+      .filter((event): event is { type: 'text'; content: string } => event.type === 'text')
+      .map(event => event.content)
+      .join('');
+    expect(text).toBe('重建成功');
+    const done = events.find(event => event.type === 'done') as { sessionId?: string | null };
+    expect(done.sessionId).toBe('pi-session-2');
   });
 
   test('stopping a turn aborts only that process tree', async () => {

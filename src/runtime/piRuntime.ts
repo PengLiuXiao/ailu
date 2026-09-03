@@ -49,6 +49,8 @@ interface ActivePiTurn {
   outputLimitExceeded: boolean;
   /** Set once an unexpected process exit has been reported for this turn. */
   exitReported: boolean;
+  /** Connect failures report through their own error path, not via close. */
+  connectCompleted: boolean;
   detachAbort: () => void;
 }
 
@@ -202,6 +204,7 @@ export class PiRpcRuntime extends EventEmitter {
       interrupted: false,
       outputLimitExceeded: false,
       exitReported: false,
+      connectCompleted: false,
       detachAbort: () => undefined,
     };
     this.activeTurns.add(active);
@@ -220,7 +223,7 @@ export class PiRpcRuntime extends EventEmitter {
       active.detachAbort();
       this.activeTurns.delete(active);
       active.settle();
-      this.trackClientTeardown(client);
+      this.trackClientTeardown(active.client);
     };
 
     const emitText = (content: string): void => {
@@ -345,7 +348,7 @@ export class PiRpcRuntime extends EventEmitter {
       if (!FIRE_AND_FORGET_UI_METHODS.has(method)) {
         // Extension dialogs that Ailu cannot render are cancelled so Pi can
         // continue; the #6 permission bridge handles its own dialogs.
-        client.respondUiRequest(id as number | string, { cancelled: true });
+        active.client.respondUiRequest(id as number | string, { cancelled: true });
         listener({
           type: 'diagnostic',
           code: 'pi_extension_dialog_cancelled',
@@ -355,7 +358,7 @@ export class PiRpcRuntime extends EventEmitter {
     };
 
     const handleClose = (reason: string): void => {
-      if (active.settled || active.exitReported) return;
+      if (!active.connectCompleted || active.settled || active.exitReported) return;
       active.exitReported = true;
       finish({
         type: 'error',
@@ -365,10 +368,6 @@ export class PiRpcRuntime extends EventEmitter {
       });
     };
 
-    client.on('piEvent', (event: Record<string, unknown>) => handleEvent(event));
-    client.on('uiRequest', (request_: Record<string, unknown>) => handleUiRequest(request_));
-    client.on('close', (reason: string) => handleClose(reason));
-
     const onAbort = (): void => {
       active.interrupted = true;
       pendingAgentError = null;
@@ -377,15 +376,45 @@ export class PiRpcRuntime extends EventEmitter {
     runtimeRequest.signal?.addEventListener('abort', onAbort, { once: true });
     active.detachAbort = () => runtimeRequest.signal?.removeEventListener('abort', onAbort);
 
-    try {
-      await client.connect({
+    /**
+     * Connects the live client and records whether a requested resume found
+     * an empty session file (Pi recreates missing sessions with the same id).
+     */
+    const connectPiSession = async (connectRequest: ChatTurnRequest): Promise<boolean> => {
+      const connectClient = active.client;
+      connectClient.on('piEvent', (event: Record<string, unknown>) => handleEvent(event));
+      connectClient.on('uiRequest', (request_: Record<string, unknown>) => handleUiRequest(request_));
+      connectClient.on('close', (reason: string) => handleClose(reason));
+      await connectClient.connect({
         executablePath: connection.binaryPath,
-        args: buildPiTurnArgs(runtimeRequest, sessionDir),
+        args: buildPiTurnArgs(connectRequest, sessionDir),
         env: connection.env,
-        cwd: runtimeRequest.cwd,
+        cwd: connectRequest.cwd,
       });
-    } catch (error) {
-      const detail = client.lastStderrTail || String(error);
+      const state = active.client.stateData as Record<string, unknown> | null;
+      if (state && typeof state.sessionId === 'string' && state.sessionId) {
+        active.sessionId = state.sessionId;
+      }
+      const messageCount = state && typeof state.messageCount === 'number'
+        ? state.messageCount
+        : null;
+      return Boolean(connectRequest.sessionId?.trim() && messageCount === 0);
+    };
+
+    const swapToFreshSession = (): void => {
+      const previousClient = active.client;
+      active.client = new PiRpcClient();
+      this.trackClientTeardown(previousClient);
+    };
+
+    const fallbackAllowed = runtimeRequest.allowFreshSessionFallback === true
+      && Boolean(runtimeRequest.freshSessionPrompt?.trim())
+      && runtimeRequest.textOnly !== true;
+    let effectiveRequest = runtimeRequest;
+    let prompt = composePiPrompt(runtimeRequest);
+
+    const failConnect = (error: unknown, connectClient: PiRpcClient): void => {
+      const detail = connectClient.lastStderrTail || String(error);
       const unsupported = /--mode|unknown option|unrecognized/i.test(detail);
       finish({
         type: 'error',
@@ -395,14 +424,53 @@ export class PiRpcRuntime extends EventEmitter {
         detail,
         diagnostic: unsupported ? 'pi_rpc_unsupported' : 'pi_rpc_start_failed',
       });
-      return;
+    };
+
+    try {
+      const rebuilt = await connectPiSession(effectiveRequest);
+      if (rebuilt) {
+        listener({
+          type: 'diagnostic',
+          code: 'pi_session_rebuilt',
+          message: '原 Pi 会话已不存在，已按当前对话重建新会话；聊天记录完整保留。',
+        });
+        if (fallbackAllowed) {
+          swapToFreshSession();
+          effectiveRequest = { ...runtimeRequest, sessionId: undefined };
+          prompt = runtimeRequest.freshSessionPrompt as string;
+          await connectPiSession(effectiveRequest);
+        }
+      }
+    } catch (error) {
+      const failedClient = active.client;
+      const detail = failedClient.lastStderrTail || String(error);
+      const unsupported = /--mode|unknown option|unrecognized/i.test(detail);
+      // A stored session file that refuses to load is corrupt; with a verified
+      // handoff prompt the turn can restart on a brand-new private session.
+      if (!unsupported && fallbackAllowed && effectiveRequest.sessionId?.trim()) {
+        listener({
+          type: 'diagnostic',
+          code: 'pi_session_rebuilt',
+          message: '原 Pi 会话无法加载（可能已损坏），已按当前对话重建新会话；聊天记录完整保留。',
+        });
+        swapToFreshSession();
+        effectiveRequest = { ...runtimeRequest, sessionId: undefined };
+        prompt = runtimeRequest.freshSessionPrompt as string;
+        try {
+          await connectPiSession(effectiveRequest);
+        } catch (fallbackError) {
+          if (!active.settled) failConnect(fallbackError, active.client);
+          return;
+        }
+      } else {
+        failConnect(error, failedClient);
+        return;
+      }
     }
 
-    const state = client.stateData as Record<string, unknown> | null;
-    const sessionId = state && typeof state.sessionId === 'string' ? state.sessionId : null;
-    if (sessionId) active.sessionId = sessionId;
-    if (active.exposeSession && sessionId) {
-      listener({ type: 'session', sessionId });
+    active.connectCompleted = true;
+    if (active.exposeSession && active.sessionId) {
+      listener({ type: 'session', sessionId: active.sessionId });
     }
 
     if (connection.executionIsCurrent && !connection.executionIsCurrent()) {
@@ -415,9 +483,8 @@ export class PiRpcRuntime extends EventEmitter {
       return;
     }
 
-    const prompt = composePiPrompt(runtimeRequest);
     try {
-      await client.request({ type: 'prompt', message: prompt }, PI_ABORT_COMPLETION_TIMEOUT_MS);
+      await active.client.request({ type: 'prompt', message: prompt }, PI_ABORT_COMPLETION_TIMEOUT_MS);
     } catch (error) {
       if (active.settled) return;
       finish({
