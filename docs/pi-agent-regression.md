@@ -58,7 +58,6 @@ npm run check
 - `npm run lint`：0 error（存量 warning 数与接入前一致）。
 - `npm run build` 与 `npm run verify:release`：**在干净工作树（暂存会话前的未提交改动与未跟踪工作区文件后）通过**。
 
-已知环境性阻塞（与 Pi 改动无关）：
+本地专属文件的处理（2026-09-03 起）：
 
-- 工作区存在按项目规则创建的 `AGENTS.md` 软链接与若干未跟踪文件，发布策略要求公开源码树无软链接且 git 索引与工作树一致，因此本机直接执行 `npm run build` 会失败；干净检出后不受影响。提交或收纳这些工作区文件后本机亦可直接构建。
-- 会话前遗留的未提交 CC Switch 改动（`src/runtime/ccSwitch.ts` 等 4 个文件）同样会让本机构建停在「索引与工作树不一致」；该工作与 Pi 无关，保持未提交原样。
+- 按项目规则，`AGENTS.md` 是指向 `CLAUDE.md` 的本地软链接、`zcode.json` 是本机工具配置；二者不进入公开源码树。发布策略的 `LOCAL_ONLY_ROOTS` 将它们排除在源码树清点之外，`.gitignore` 保持忽略，本机构建不再被它们阻塞。

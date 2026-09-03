@@ -10,7 +10,7 @@ export const GENERATED_PUBLIC_ARTIFACTS = Object.freeze([
 ]);
 
 const GENERATED_SET = new Set(GENERATED_PUBLIC_ARTIFACTS);
-const LOCAL_ONLY_ROOTS = new Set(['.git', 'node_modules']);
+const LOCAL_ONLY_ROOTS = new Set(['.git', 'node_modules', 'AGENTS.md', 'zcode.json']);
 const ALLOWED_BINARY_FILES = new Map([
   ['assets/ailu-ribbon-icon.png', {
     magic: Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
