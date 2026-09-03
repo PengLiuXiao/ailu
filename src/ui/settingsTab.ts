@@ -857,9 +857,11 @@ export class AiluSettingTab extends PluginSettingTab {
     const routeSummary = ccSwitchRouteSummary(snapshot);
     const state = snapshot.state;
     const statusText = state === 'ready'
-      ? `本机代理在线 · ${currentLabel}${!snapshot.currentModel && routeSummary
-        ? ` · Haiku / Sonnet / Opus 家族路由：${routeSummary}`
-        : ''}`
+      ? snapshot.currentModel
+        ? `本机代理在线 · 当前模型：${snapshot.currentModel}`
+        : routeSummary
+          ? `本机代理在线 · Haiku / Sonnet / Opus 家族路由配置：${routeSummary} · 当前模型未确定`
+          : `本机代理在线 · 当前 Provider：${currentLabel}`
       : state === 'error'
         ? `本机代理不可用：${userFacingErrorText(snapshot.error, '未返回可识别的错误详情。')}`
         : '尚未检查本机代理状态';
