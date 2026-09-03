@@ -135,6 +135,12 @@ export class PiRpcClient extends EventEmitter {
     this.child = child;
     this.processGroupId = child.pid ?? null;
 
+    // A Pi process that exits (or rejects our flags) before the handshake can
+    // be gone while a command is still being written; EPIPE must never escape
+    // as an uncaught stream error.
+    child.stdin?.on('error', (error: unknown) => {
+      this.emit('log', 'warn', `Pi RPC stdin 写入失败（进程可能已退出）：${String(error)}`);
+    });
     child.stdout?.on('data', (chunk: unknown) => {
       const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
       this.handleStdout(text);
@@ -303,7 +309,13 @@ export class PiRpcClient extends EventEmitter {
       this.emit('log', 'warn', 'Pi RPC stdin 不可写。');
       return;
     }
-    this.child.stdin.write(`${JSON.stringify(message)}\n`);
+    try {
+      this.child.stdin.write(`${JSON.stringify(message)}\n`);
+    } catch (error) {
+      // The process died between the writability check and this write; the
+      // pending request is failed by the exit/close path instead.
+      this.emit('log', 'warn', `Pi RPC stdin 写入抛出异常：${String(error)}`);
+    }
   }
 
   private handleStdout(text: string): void {
