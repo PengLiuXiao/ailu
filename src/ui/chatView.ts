@@ -3042,7 +3042,9 @@ export class AiluChatView extends ItemView {
     }
     const rawPrompt = this.inputEl.value.trim();
     if (!rawPrompt && !this.selectedSkill) return;
-    const skillPrompt = this.selectedSkill?.insertText ?? '';
+    // Pi loads selected Skills natively through --skill, so the invocation
+    // text stays out of the prompt; other Agents keep the inline instruction.
+    const skillPrompt = this.agentId === 'pi' ? '' : this.selectedSkill?.insertText ?? '';
     this.ensureConversation();
     const conversation = this.conversation;
     if (!conversation) return;
@@ -3298,7 +3300,12 @@ export class AiluChatView extends ItemView {
           ccSwitchSessionFingerprint: ccSwitchSessionConfig?.routeFingerprint,
           model: runtimeModel,
           reasoningEffort: reasoningEffort || undefined,
-          ...(agentId === 'pi' ? { piCustomizationMode: settings.piCustomizationMode ?? 'user' } : {}),
+          ...(agentId === 'pi' ? {
+            piCustomizationMode: settings.piCustomizationMode ?? 'user',
+            skillPaths: this.selectedSkill?.skillFilePath
+              ? [this.selectedSkill.skillFilePath]
+              : [],
+          } : {}),
           sessionId: preparedContext.sessionId,
           freshSessionPrompt: preparedContext.freshSessionPrompt,
           allowFreshSessionFallback: preparedContext.allowFreshSessionFallback,
@@ -3579,9 +3586,10 @@ export class AiluChatView extends ItemView {
     const cursor = this.inputEl.selectionStart ?? this.inputEl.value.length;
     const slashQuery = findSlashQuery(this.inputEl.value, cursor);
     if (slashQuery !== null) {
+      const skillSettings = this.deps.getSettings();
       const commands = filterSlashCommands(await loadChatSkills(
         this.agentId,
-        this.deps.getSettings().creativeSkillNames,
+        this.agentId === 'pi' ? skillSettings.piSkillNames : skillSettings.creativeSkillNames,
       ), slashQuery);
       this.showSuggestions(commands.map(command => ({
         label: command.label,

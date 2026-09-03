@@ -1745,12 +1745,17 @@ export class AiluSettingTab extends PluginSettingTab {
       });
       return;
     }
-    const settings = this.deps.getSettings();
-    const enabled = filterCreativeSkills(skills, settings.creativeSkillNames);
+    const isPi = agentId === 'pi';
+    const selectedNames = (): string[] => (
+      isPi ? this.deps.getSettings().piSkillNames : this.deps.getSettings().creativeSkillNames
+    );
+    const enabled = filterCreativeSkills(skills, selectedNames());
     status.setText(`${enabled.length}/${skills.length} 已选`);
     content.createEl('p', {
       cls: 'setting-item-description',
-      text: '勾选结果由 Claude Code 与 Codex 共用。Ailu 不会安装、上传或自动启用本机 Skill。',
+      text: isPi
+        ? '勾选只对 Pi 生效，与 Claude Code / Codex 的选择互不影响。Pi 发送时只加载勾选的 Skill，未勾选的不会自动加载。'
+        : '勾选结果由 Claude Code 与 Codex 共用。Ailu 不会安装、上传或自动启用本机 Skill。',
     });
 
     if (skills.length === 0) {
@@ -1775,18 +1780,19 @@ export class AiluSettingTab extends PluginSettingTab {
         const checkbox = enabledCell.createEl('input', {
           attr: { type: 'checkbox', 'aria-label': `启用 ${skill.name}` },
         });
-        checkbox.checked = settings.creativeSkillNames.includes(skill.name);
+        checkbox.checked = selectedNames().includes(skill.name);
         checkbox.onchange = () => {
           const currentSettings = this.deps.getSettings();
-          const previous = [...currentSettings.creativeSkillNames];
-          const selected = new Set(currentSettings.creativeSkillNames);
+          const previous = [...(isPi ? currentSettings.piSkillNames : currentSettings.creativeSkillNames)];
+          const selected = new Set(isPi ? currentSettings.piSkillNames : currentSettings.creativeSkillNames);
           if (checkbox.checked) selected.add(skill.name);
           else selected.delete(skill.name);
-          currentSettings.creativeSkillNames = [...selected];
+          if (isPi) currentSettings.piSkillNames = [...selected];
+          else currentSettings.creativeSkillNames = [...selected];
           void this.deps.saveSettings().then(() => {
             const count = filterCreativeSkills(
               skills,
-              this.deps.getSettings().creativeSkillNames,
+              isPi ? this.deps.getSettings().piSkillNames : this.deps.getSettings().creativeSkillNames,
             ).length;
             status.setText(`${count}/${skills.length} 已选`);
           }).catch(error => {

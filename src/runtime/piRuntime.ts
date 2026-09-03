@@ -819,10 +819,12 @@ export function buildPiTurnArgs(
     // Customization scope. `--no-approve` pins project-local resources off
     // even when the user's own Pi defaults to always trusting projects;
     // `--approve` trusts the Vault's .pi resources for this run only.
+    // Skill auto-discovery stays off in every mode: only the Skills the user
+    // explicitly selected for this task load, through explicit --skill paths.
+    args.push('--no-skills');
     if (request.piCustomizationMode === 'isolated') {
       args.push(
         '--no-extensions',
-        '--no-skills',
         '--no-prompt-templates',
         '--no-themes',
         '--no-context-files',
@@ -832,6 +834,10 @@ export function buildPiTurnArgs(
       args.push('--approve');
     } else {
       args.push('--no-approve');
+    }
+    for (const skillPath of request.skillPaths ?? []) {
+      const normalized = skillPath.trim();
+      if (path.isAbsolute(normalized)) args.push('--skill', normalized);
     }
   }
   if (bridgePath && request.textOnly !== true) args.push('-e', bridgePath);

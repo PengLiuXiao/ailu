@@ -16,6 +16,7 @@ export type CanonicalAgentSettings = Pick<
   | 'fullAccessByAgent'
   | 'creativeSkillNames'
   | 'piCustomizationMode'
+  | 'piSkillNames'
 >;
 
 /** Unknown or retired Pi customization modes fall back to the user scope. */
@@ -84,6 +85,7 @@ export function normalizeAgentSettings(
     fullAccessByAgent: normalizeFullAccessByAgent(value?.fullAccessByAgent),
     creativeSkillNames: normalizeSelectedSkillNames(value?.creativeSkillNames),
     piCustomizationMode: normalizePiCustomizationMode(value?.piCustomizationMode),
+    piSkillNames: normalizeSelectedSkillNames(value?.piSkillNames),
   };
 }
 
@@ -103,6 +105,7 @@ export function canonicalizeStoredAgentSettings(
     fullAccessByAgent: normalized.fullAccessByAgent,
     creativeSkillNames: normalized.creativeSkillNames,
     piCustomizationMode: normalized.piCustomizationMode,
+    piSkillNames: normalized.piSkillNames,
   };
   delete canonical.sharedEnvironmentVariables;
   return canonical;

@@ -248,6 +248,8 @@ export interface ChatTurnRequest {
   contextCheckpointId?: string;
   /** Pi customization scope for this turn; omitted follows user defaults. */
   piCustomizationMode?: PiCustomizationMode;
+  /** Explicitly selected Pi Skills, loaded via `--skill` and nothing else. */
+  skillPaths?: string[];
   /** Cancels only this runtime turn without stopping other active agents. */
   signal?: AbortSignal;
 }
@@ -409,6 +411,8 @@ export interface AiluSettings {
   creativeSkillNames: string[];
   /** Pi customization scope used for ordinary Pi turns. */
   piCustomizationMode: PiCustomizationMode;
+  /** Locally discovered Pi Skills explicitly selected for Pi turns. */
+  piSkillNames: string[];
   systemPrompt: string;
   planModeDefault: boolean;
   maxContextFileChars: number;
@@ -489,6 +493,7 @@ export const DEFAULT_SETTINGS: AiluSettings = {
   fullAccessByAgent: DEFAULT_FULL_ACCESS,
   creativeSkillNames: [],
   piCustomizationMode: 'user',
+  piSkillNames: [],
   systemPrompt: '',
   planModeDefault: false,
   maxContextFileChars: 40_000,

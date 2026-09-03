@@ -5,8 +5,8 @@ import { basename, join, relative, sep } from 'node:path';
 import type { AgentId } from '../types';
 import { parseSkillFrontmatter } from './skillParser';
 
-export type LocalSkillSource = 'shared' | 'claude' | 'codex' | 'codex-plugin';
-type SupportedSkillAgentId = 'claude' | 'codex';
+export type LocalSkillSource = 'shared' | 'claude' | 'codex' | 'codex-plugin' | 'pi';
+type SupportedSkillAgentId = 'claude' | 'codex' | 'pi';
 
 export interface LocalSkill {
   name: string;
@@ -106,6 +106,12 @@ function getSkillRoots(agentId: AgentId, home: string): SkillRoot[] {
       priority: 0,
       allowSystemDirectory: true,
     },
+    pi: {
+      directory: join(home, '.pi', 'agent', 'skills'),
+      source: 'pi',
+      sourceLabel: 'Pi',
+      priority: 0,
+    },
   };
   const shared: SkillRoot = {
     directory: join(home, '.agents', 'skills'),
@@ -113,6 +119,11 @@ function getSkillRoots(agentId: AgentId, home: string): SkillRoot[] {
     sourceLabel: '共享',
     priority: 1,
   };
+  if (agentId === 'pi') {
+    // Pi Skills stay visually and functionally distinct: only the Pi native
+    // root and the agent-neutral shared root are discovered for Pi.
+    return [nativeRoots.pi, shared];
+  }
   const fallbackOrder: SupportedSkillAgentId[] = ['codex', 'claude'];
   const fallbacks = fallbackOrder
     .filter(id => id !== agentId)
@@ -128,7 +139,7 @@ function getSkillRoots(agentId: AgentId, home: string): SkillRoot[] {
 }
 
 function isSupportedSkillAgentId(agentId: AgentId): agentId is SupportedSkillAgentId {
-  return agentId === 'claude' || agentId === 'codex';
+  return agentId === 'claude' || agentId === 'codex' || agentId === 'pi';
 }
 
 async function scanSkillRoot(root: SkillRoot, agentId: AgentId): Promise<SkillCandidate[]> {

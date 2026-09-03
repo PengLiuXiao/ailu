@@ -186,6 +186,7 @@ describe('PiRpcRuntime turn flags', () => {
       '/ailu-home/pi-sessions',
       '--session-id',
       'stored-session',
+      '--no-skills',
       '--no-approve',
     ]);
   });
@@ -254,6 +255,25 @@ describe('PiRpcRuntime turn flags', () => {
     expect(trustedArgs).toContain('--approve');
     expect(trustedArgs).not.toContain('--no-approve');
     expect(trustedArgs).not.toContain('--no-extensions');
+  });
+
+  test('only explicitly selected Skills reach the Pi process', () => {
+    const args = buildPiTurnArgs(
+      baseRequest({
+        skillPaths: ['/home/u/.pi/agent/skills/pi-native/SKILL.md', 'relative/SKILL.md', '  '],
+      }),
+      '/ailu-home/pi-sessions',
+    );
+    expect(args).toContain('--no-skills');
+    const skillFlags = args.filter(flag => flag === '--skill').length;
+    expect(skillFlags).toBe(1);
+    expect(args[args.indexOf('--skill') + 1]).toBe('/home/u/.pi/agent/skills/pi-native/SKILL.md');
+  });
+
+  test('no skill flags are added when nothing is selected', () => {
+    const args = buildPiTurnArgs(baseRequest(), '/ailu-home/pi-sessions');
+    expect(args).toContain('--no-skills');
+    expect(args).not.toContain('--skill');
   });
 
   test('the system prompt is embedded ahead of the user prompt', () => {

@@ -47,4 +47,25 @@ describe('local Skill discovery', () => {
       `${fixtureHome}/.codex/plugins/cache`,
     ]));
   });
+
+  test('discovers the local Pi Skill root plus shared skills only', async () => {
+    const skills = await loadLocalSkills('pi', { homeDirectory: fixtureHome, useCache: false });
+    expect(skills.map(skill => skill.name)).toEqual(['duplicate-skill', 'pi-native', 'shared-writer']);
+    expect(skills.find(skill => skill.name === 'pi-native')).toMatchObject({
+      source: 'pi',
+      sourceLabel: 'Pi',
+    });
+    expect(skills.find(skill => skill.name === 'shared-writer')).toMatchObject({
+      source: 'shared',
+    });
+  });
+
+  test('the Pi picker never sees Claude or Codex roots', () => {
+    const directories = getSkillDirectories('pi', fixtureHome);
+    expect(directories).toHaveLength(2);
+    expect(directories).toEqual([
+      `${fixtureHome}/.pi/agent/skills`,
+      `${fixtureHome}/.agents/skills`,
+    ]);
+  });
 });
