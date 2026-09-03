@@ -17,6 +17,7 @@ import { RuntimeDiscovery } from './discovery';
 import { AgentAdapter } from './adapter';
 import { runtimeEnvironment } from '../utils/env';
 import { CodexAppServerRuntime } from './codexRuntime';
+import { PiRpcRuntime } from './piRuntime';
 import {
   CcSwitchClient,
   ccSwitchGlobalSnapshot,
@@ -56,6 +57,7 @@ export class RuntimeManager {
     private getSettings: () => AiluSettings,
     private readonly ccSwitchClient = new CcSwitchClient(),
     private readonly codexRuntime = new CodexAppServerRuntime(),
+    private readonly piRuntime = new PiRpcRuntime(),
   ) {}
 
   getCcSwitchSnapshot(): CcSwitchSnapshot {
@@ -95,7 +97,7 @@ export class RuntimeManager {
       configuredPaths: settings.configuredPaths,
       configSources: settings.configSources,
     }).resolve(request.agentId, {
-      withVersion: request.agentId === 'codex' && process.platform !== 'win32',
+      withVersion: (request.agentId === 'codex' || request.agentId === 'pi') && process.platform !== 'win32',
     });
     if (process.platform !== 'win32') return status;
     return {
@@ -287,7 +289,9 @@ export class RuntimeManager {
     const status = new RuntimeDiscovery({
       configuredPaths: settings.configuredPaths,
       configSources: settings.configSources,
-    }).resolve(request.agentId, { withVersion: request.agentId === 'codex' });
+    }).resolve(request.agentId, {
+      withVersion: request.agentId === 'codex' || request.agentId === 'pi',
+    });
     if (!status.binaryPath) {
       appendLocalLog('runtime_missing', { agentId: request.agentId, error: status.error });
       deliver({
@@ -328,6 +332,42 @@ export class RuntimeManager {
       }, deliver);
       appendLocalLog('runtime_turn_finish', {
         agentId: 'codex',
+        durationMs: Date.now() - startedAt,
+        cancelled: Boolean(request.signal?.aborted),
+      });
+      return;
+    }
+
+    if (request.agentId === 'pi') {
+      if (request.configSource !== 'localCli') {
+        deliver({
+          type: 'error',
+          message: 'Pi 仅支持本机 Pi 配置。',
+          detail: 'Pi 不使用供应商 Profile 或 CC Switch。',
+        });
+        deliver({ type: 'done' });
+        return;
+      }
+      const startedAt = Date.now();
+      appendLocalLog('runtime_turn_start', {
+        agentId: 'pi',
+        configSource: 'localCli',
+        binarySource: status.source,
+        model: request.model ?? null,
+      });
+      if (!this.executionFingerprintIsCurrent(request)) {
+        this.emitExecutionConfigChanged(deliver);
+        return;
+      }
+      await this.piRuntime.runTurn(request, {
+        binaryPath: status.binaryPath,
+        binarySource: status.source,
+        version: status.version,
+        env: runtimeEnvironment(process.env, status.binaryPath),
+        executionIsCurrent: () => this.executionFingerprintIsCurrent(request),
+      }, deliver);
+      appendLocalLog('runtime_turn_finish', {
+        agentId: 'pi',
         durationMs: Date.now() - startedAt,
         cancelled: Boolean(request.signal?.aborted),
       });
@@ -539,6 +579,7 @@ export class RuntimeManager {
     const teardownResults = await Promise.allSettled([
       ...adapterTeardowns,
       this.codexRuntime.cancelAll(),
+      this.piRuntime.cancelAll(),
     ]);
     for (const result of teardownResults) {
       if (result.status === 'rejected') failures.push(result.reason);
@@ -589,6 +630,12 @@ export class RuntimeManager {
       }
       try {
         await this.codexRuntime.shutdown();
+      } catch (error) {
+        failures.push(error);
+        stopFailures.push(error);
+      }
+      try {
+        await this.piRuntime.shutdown();
       } catch (error) {
         failures.push(error);
         stopFailures.push(error);
@@ -721,7 +768,9 @@ export class RuntimeManager {
     const status = new RuntimeDiscovery({
       configuredPaths: settings.configuredPaths,
       configSources: settings.configSources,
-    }).resolve(request.agentId, { withVersion: request.agentId === 'codex' });
+    }).resolve(request.agentId, {
+      withVersion: request.agentId === 'codex' || request.agentId === 'pi',
+    });
     const selectedProfileId = request.providerProfileId?.trim()
       || settings.providerProfileByAgent[request.agentId]?.trim()
       || undefined;
@@ -781,6 +830,6 @@ export class RuntimeManager {
   }
 }
 
-function isSupportedRuntimeAgentId(agentId: AgentId): agentId is 'claude' | 'codex' {
-  return agentId === 'claude' || agentId === 'codex';
+function isSupportedRuntimeAgentId(agentId: AgentId): agentId is 'claude' | 'codex' | 'pi' {
+  return agentId === 'claude' || agentId === 'codex' || agentId === 'pi';
 }

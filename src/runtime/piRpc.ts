@@ -76,9 +76,15 @@ export class PiRpcClient extends EventEmitter {
   private disconnectBarrier: Promise<void> | null = null;
   private outputLimitExceeded = false;
   private processGroupId: number | null = null;
+  private connectStateData: unknown = null;
 
   constructor(private readonly options: PiRpcClientOptions = {}) {
     super();
+  }
+
+  /** Data returned by the `get_state` round trip that proved the connection. */
+  get stateData(): unknown {
+    return this.connectStateData;
   }
 
   get isReady(): boolean {
@@ -116,6 +122,7 @@ export class PiRpcClient extends EventEmitter {
     this.stdoutBufferBytes = 0;
     this.stderrTail = '';
     this.outputLimitExceeded = false;
+    this.connectStateData = null;
     this.executablePath = options.executablePath;
 
     const child = spawn(options.executablePath, ['--mode', 'rpc', ...(options.args ?? [])], {
@@ -142,7 +149,7 @@ export class PiRpcClient extends EventEmitter {
     child.on('error', error => this.handleFatal(error));
     child.on('exit', (code, signal) => this.handleExit(child, code, signal));
 
-    await this.request({ type: 'get_state' }, PI_RPC_CONNECT_TIMEOUT_MS);
+    this.connectStateData = await this.request({ type: 'get_state' }, PI_RPC_CONNECT_TIMEOUT_MS);
     this.ready = true;
   }
 
