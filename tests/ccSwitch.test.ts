@@ -80,17 +80,17 @@ function sequenceTransport(...responses: CcSwitchTransportResponse[]): CcSwitchT
 }
 
 describe('ccSwitchSnapshotLabel', () => {
-  test('does not present a shared family route as current when the global CLI model is unknown', () => {
+  test('shows the configured CLI model when the upstream family mapping is unresolved', () => {
     const snapshot: CcSwitchSnapshot = {
       state: 'ready',
       currentProvider: null,
-      currentProviderId: 'deepseek-provider-id',
-      currentCliModel: 'glm-4.7',
+      currentProviderId: '3cd6dac4-2b1d-4ed7-b2c6-74837d002cc1',
+      currentCliModel: 'deepseek-v4-flash',
       currentModel: null,
       claudeConfigDir: '/mock-home/.claude',
       routeEnvironment: {
-        ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME: 'deepseek-v4-pro',
-        ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'deepseek-v4-pro',
+        ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME: 'deepseek-v4-flash',
+        ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'deepseek-v4-flash',
         ANTHROPIC_DEFAULT_OPUS_MODEL_NAME: 'deepseek-v4-pro',
       },
       routeFingerprint: 'route:deepseek',
@@ -101,8 +101,51 @@ describe('ccSwitchSnapshotLabel', () => {
       baseUrl: CC_SWITCH_BASE_URL,
     };
 
-    expect(ccSwitchRouteSummary(snapshot)).toBe('deepseek-v4-pro');
-    expect(ccSwitchSnapshotLabel(snapshot)).toBe('deepseek · 模型未确定');
+    expect(ccSwitchRouteSummary(snapshot)).toBe('deepseek-v4-flash / deepseek-v4-pro');
+    expect(ccSwitchSnapshotLabel(snapshot))
+      .toBe('3cd6dac4 · deepseek-v4-flash（按 CC Switch 配置）');
+  });
+
+  test('reports a genuinely missing model as not configured', () => {
+    const snapshot: CcSwitchSnapshot = {
+      state: 'ready',
+      currentProvider: 'DeepSeek',
+      currentProviderId: 'deepseek-provider-id',
+      currentCliModel: null,
+      currentModel: null,
+      claudeConfigDir: '/mock-home/.claude',
+      routeEnvironment: {},
+      routeFingerprint: 'route:deepseek',
+      selectionSource: 'liveConfig',
+      proxyStatusStale: false,
+      error: null,
+      checkedAt: 1,
+      baseUrl: CC_SWITCH_BASE_URL,
+    };
+
+    expect(ccSwitchSnapshotLabel(snapshot)).toBe('DeepSeek · 模型未配置');
+  });
+
+  test('keeps a confirmed routed model free of the configured-model qualifier', () => {
+    const snapshot: CcSwitchSnapshot = {
+      state: 'ready',
+      currentProvider: 'DeepSeek',
+      currentProviderId: 'deepseek-provider-id',
+      currentCliModel: 'sonnet',
+      currentModel: 'deepseek-v4-flash',
+      claudeConfigDir: '/mock-home/.claude',
+      routeEnvironment: {
+        ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'deepseek-v4-flash',
+      },
+      routeFingerprint: 'route:deepseek',
+      selectionSource: 'liveConfig',
+      proxyStatusStale: false,
+      error: null,
+      checkedAt: 1,
+      baseUrl: CC_SWITCH_BASE_URL,
+    };
+
+    expect(ccSwitchSnapshotLabel(snapshot)).toBe('deepseek-v4-flash · DeepSeek');
   });
 });
 

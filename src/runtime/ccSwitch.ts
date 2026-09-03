@@ -380,7 +380,11 @@ export function ccSwitchSnapshotLabel(snapshot: CcSwitchSnapshot): string {
     || '';
   const currentModel = snapshot.currentModel?.trim() ?? '';
   if (!currentModel) {
-    return providerMarker ? `${providerMarker} · 模型未确定` : '模型未确定';
+    const configuredModel = snapshot.currentCliModel?.trim() ?? '';
+    const modelLabel = configuredModel
+      ? `${configuredModel}（按 CC Switch 配置）`
+      : '模型未配置';
+    return providerMarker ? `${providerMarker} · ${modelLabel}` : modelLabel;
   }
   return providerMarker && currentModel !== providerMarker && !currentModel.includes(providerMarker)
     ? `${currentModel} · ${providerMarker}`
