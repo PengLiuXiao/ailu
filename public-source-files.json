@@ -8,6 +8,7 @@
     "assets/ailu-ribbon-icon.png",
     "CONTRIBUTING.md",
     "docs/COMPLETE_SETUP.md",
+    "docs/pi-agent-regression.md",
     "esbuild.config.mjs",
     "eslint.config.mjs",
     "LICENSE",
