@@ -166,6 +166,35 @@ export function shouldResumePiSession(
   return Boolean(sessionId?.trim() && storedConfigKey && storedConfigKey === currentConfigKey);
 }
 
+export interface AgySessionConfigKeyInput {
+  /** Model override; empty means follow the local default. */
+  model: string;
+  /** Reasoning effort override; empty means follow the local default. */
+  effort: string;
+}
+
+/**
+ * An Antigravity conversation keeps provider-side state for one Ailu chat.
+ * Bind continuation to the exact model and effort so a change starts a fresh
+ * conversation instead of silently resuming an incompatible one.
+ */
+export function buildAgySessionConfigKey(input: AgySessionConfigKeyInput): string {
+  return JSON.stringify({
+    version: 1,
+    model: input.model.trim(),
+    effort: input.effort.trim(),
+  });
+}
+
+/** Antigravity conversations without a matching configuration key are never resumed. */
+export function shouldResumeAgySession(
+  sessionId: string | undefined,
+  storedConfigKey: string | undefined,
+  currentConfigKey: string,
+): boolean {
+  return Boolean(sessionId?.trim() && storedConfigKey && storedConfigKey === currentConfigKey);
+}
+
 /**
  * Decide whether the UI should pass a persisted session to the coordinator.
  *

@@ -4,7 +4,7 @@
 ![Commercial use: permitted under AGPL](https://img.shields.io/badge/commercial_use-permitted_under_AGPL-2ea44f.svg)
 ![Commercial support: available](https://img.shields.io/badge/commercial_support-available-7c3aed.svg)
 
-Ailu 是一款桌面端 Obsidian 插件，把本地 Agent 对话（支持 Claude Code、Codex 和 Pi 三个 Agent）、内容预览、公众号草稿上传、飞书文档同步和 X Article 草稿创建收进同一个简约工作台。显示名为 `Ailu`，插件 ID、包名、存储和 Agent Memory 身份统一为 `ailu`。
+Ailu 是一款桌面端 Obsidian 插件，把本地 Agent 对话（支持 Claude Code、Codex、Pi 和 Antigravity CLI 四个 Agent）、内容预览、公众号草稿上传、飞书文档同步和 X Article 草稿创建收进同一个简约工作台。显示名为 `Ailu`，插件 ID、包名、存储和 Agent Memory 身份统一为 `ailu`。
 
 ## 当前分发状态
 
@@ -19,7 +19,7 @@ Ailu 0.3.1 以公开源码和 [GitHub Release](https://github.com/PengLiuXiao/ai
 3. 在目标 Vault 中创建 `.obsidian/plugins/ailu/`，把三个运行文件放入该目录；不要把 GitHub 的 Source code ZIP 直接放进去。
 4. 完全退出并重开 Obsidian，在“设置 → 第三方插件”中启用 Ailu，然后继续执行下方“首次启动验收”。
 
-Release 安装不需要 Node.js；核心写锁仍要求系统存在可执行的 `/usr/bin/python3`，Agent 对话仍要求至少安装并登录 Claude Code、Codex 或 Pi 三者之一。需要自行审计源码、修改插件或使用受验证部署/回滚工具时，再采用下面的源码流程。
+Release 安装不需要 Node.js；核心写锁仍要求系统存在可执行的 `/usr/bin/python3`，Agent 对话仍要求至少安装并登录 Claude Code、Codex、Pi 或 Antigravity CLI 四者之一。需要自行审计源码、修改插件或使用受验证部署/回滚工具时，再采用下面的源码流程。
 
 ## 从源码构建安装
 
@@ -28,7 +28,7 @@ Release 安装不需要 Node.js；核心写锁仍要求系统存在可执行的 
 - Obsidian Desktop 1.11.4 或更高版本；先打开目标 Vault，在“设置 → 第三方插件”中启用第三方插件，使 `.obsidian/plugins/` 和 `.obsidian/community-plugins.json` 完成初始化。
 - Node.js 22.13 或更高版本及 npm。
 - 核心写锁和部署器要求 `/usr/bin/python3` 可执行。这不是只有 X 流程才需要的可选依赖。
-- 安装当前受支持版本的 [Claude Code](https://code.claude.com/)、[Codex](https://github.com/openai/codex) 或 [Pi](https://pi.dev/docs/latest/quickstart)，至少选择一个，并先在终端完成一次登录。
+- 安装当前受支持版本的 [Claude Code](https://code.claude.com/)、[Codex](https://github.com/openai/codex)、[Pi](https://pi.dev/docs/latest/quickstart) 或 [Antigravity CLI](https://www.antigravity.google/docs/cli)，至少选择一个，并先在终端完成一次登录。
 
 先核对前置条件：
 
@@ -70,7 +70,7 @@ npm run deploy:apply -- --vault "/Users/你的用户名/Documents/My Vault"
 ### 4. 首次启动验收
 
 1. 重开 Obsidian，在“设置 → 第三方插件”确认 Ailu 已启用。
-2. 打开“设置 → Ailu”，确认 Agent 行显示已就绪；若只安装了其中一个 Agent（Claude Code / Codex / Pi），Ailu 会自动选择已安装的那个。若两者都未找到，会直接打开安装引导。
+2. 打开“设置 → Ailu”，确认 Agent 行显示已就绪；若只安装了其中一个 Agent（Claude Code / Codex / Pi / Antigravity CLI），Ailu 会自动选择已安装的那个。若两者都未找到，会直接打开安装引导。
 3. 如果终端里可用、Obsidian 中却显示未安装，在 Ailu 设置里配置真实可执行文件路径。通过 Finder 启动的 Obsidian 可能看不到 nvm、fnm、asdf 或 mise 的 shell shim；同时确保该 CLI 所需的 `node` 目录也对图形应用可见。
 4. 保持“完全访问”关闭，并先打开对话框中的 `Plan`。点击左侧 Ailu 图标，或使用命令面板 `Ailu: 打开对话`，发送：`只回复 OK，不读写任何文件。`
 5. 再打开一篇普通 Markdown，发送：`只读取当前笔记并概括三点，不修改文件。` 确认标题栏运行状态、回复和本地历史都正常。
@@ -115,12 +115,13 @@ npm run deploy:plan -- --vault "/Users/你的用户名/Documents/My Vault"
 
 ### AI 助手
 
-- 在 Obsidian 侧边栏中使用 Claude Code 或 Codex。
+- 在 Obsidian 侧边栏中使用 Claude Code、Codex、Pi 或 Antigravity CLI。
 - 支持文件引用、斜杠命令、模型、自定义供应商以及 Markdown 选区内联编辑。
 - 对话框会发现本机 Claude Code、Codex、`~/.agents/skills` 与 Codex 插件缓存中的 Skill 入口，只读取名称、说明和位置用于候选列表；用户自行选择要启用的创作 Skill。只有明确选中后，当前 Agent 才会读取对应 `SKILL.md` 及其相对引用，Ailu 不捆绑、复制或自动安装个人 Skill。
 - 若本机安装了兼容的 Agent Memory Runtime v2，每次发送前只从共享 Agent 记忆中检索 `app_id=ailu`、用户级 `project_id=global` 与默认项目 `project_id=ailu` 的创作偏好与项目工作流；`global` 只允许命中 `用户记忆/`，`项目/` 与 `工作流/` 必须使用真实项目 ID。检索完全在本机执行，结果仅作为写作上下文，不构成上传、发布、发消息、付费、凭证读取或删除授权。写入其他项目时必须显式传入该项目的真实 `project_id`，不会被底层强行归到 Ailu。
 - Claude Code 可在“本机配置 / CC Switch · 跟随全局 / 自定义供应商”之间切换。CC Switch 模式每次发送前都重新检查本地代理及全局 Claude 模型路由，不读取当前 Vault 的 `.claude/settings*.json`，不复制 API Key，也不修改 CC Switch 的全局选择。
 - Codex 模型和推理强度从本机 App Server 动态读取；支持模型实际提供的 `low`、`medium`、`high`、`xhigh`、`max`、`ultra` 六档。
+- Antigravity CLI 通过 headless NDJSON 流对话，模型列表（Gemini / Claude / GPT-OSS）从本机 `agy models` 读取，会话经 `--conversation` 延续；headless 流没有交互式权限确认通道，因此 Antigravity 对话始终以完全访问运行，且不支持图片附件。
 - 本地对话和内联编辑直接调用用户已安装的 Agent CLI。Claude Code 与 Codex 的“完全访问”默认关闭；只有用户在对应设置中明确开启后，普通对话才会请求高权限运行。Plan 模式始终保持只规划。
 
 ### 草稿工作台
@@ -142,7 +143,7 @@ npm run deploy:plan -- --vault "/Users/你的用户名/Documents/My Vault"
 
 - 桌面端 Obsidian 1.11.4 或更高版本。macOS/POSIX 支持完整写入；Windows 0.2.0 仅支持 fail-closed 只读查看。
 - 从源码构建需要 Node.js 22.13 或更高版本；核心写锁和部署要求可执行的 `/usr/bin/python3`。
-- 至少独立安装一个受支持的 Agent CLI：[Claude Code](https://code.claude.com/) 或 [Codex](https://github.com/openai/codex)。
+- 至少独立安装一个受支持的 Agent CLI：[Claude Code](https://code.claude.com/)、[Codex](https://github.com/openai/codex)、[Pi](https://pi.dev/docs/latest/quickstart) 或 [Antigravity CLI](https://www.antigravity.google/docs/cli)。
 - 使用飞书同步时，需另行安装 [lark-cli](https://github.com/larksuite/cli)；Ailu 会在草稿区完成中国版飞书 `brand=feishu` 的配置与扫码授权，不会连接国际版 Lark。插件只发现现有 CLI，不代为安装或升级。
 - 使用 X 文章草稿时，安装已与 Ailu `0.2.0` 复核的公开 tag [`x-article-draft-uploader-v1.0.1`](https://github.com/mcncarl/yichen-skills/tree/x-article-draft-uploader-v1.0.1/yichen-x-article-draft-uploader)（commit `9f679d9f28d656eb01b60d806faa709f85173c51`），并使用该版本锁定的 Python 依赖；不要安装会继续变化的任意 `main` 快照。插件只发现和调用现有 Skill，不复制、安装或升级它。该 Skill 使用独立的个人学习与非商业协议，商业使用须事先取得作者明确书面授权，不随 Ailu 的 AGPL 许可证重新授权。
 
@@ -150,7 +151,7 @@ npm run deploy:plan -- --vault "/Users/你的用户名/Documents/My Vault"
 
 ## 数据与网络边界
 
-Ailu 自身和固定模板预览不要求 Ailu 云端账号；Claude Code、Codex 及其模型供应商通常仍需要登录、API Key 或网络连接。
+Ailu 自身和固定模板预览不要求 Ailu 云端账号；Claude Code、Codex、Pi、Antigravity CLI 及其模型供应商通常仍需要登录、API Key 或网络连接。
 
 - 创作记忆通过本机 `memoryctl --actor ailu`、`app_id=ailu`、单一实际 `project_id`（用户记忆可用 `global`）、`agent_scope=shared`、`status=active` 限定读取，不扫描完整记忆库，不把对话自动写入长期记忆。默认项目文件是 `项目/Ailu.md`，对应 `project_id=ailu`；每条业务响应要求 `schema_version: 2`。插件启动、设置变更、transition marker 变化或 5 秒 TTL 到期时调用 `memoryctl --actor ailu version --json` 握手，严格要求 `ready=true`、`runtime_api_version=2`、`writer_protocol_version=2`、actor 列表含 `ailu`，并验证 manifest 与全 runtime bundle 的非空 SHA-256 完整性。缓存身份同时绑定 executable realpath、manifest realpath/mtime、transition marker 哈希及 runtime/manifest 完整性哈希。任一检查或业务子命令失败都会禁用正式记忆读写、清空读取缓存并记录本地诊断，同时隐藏不可用的记忆入口；它不会阻断普通对话，也不会绕过 Runtime v2 或复用跨 transition 的缓存结果。
 - Skill 发现只读取本机各 Skill 入口文件的 frontmatter，并由用户从候选列表中挑选；只有用户在对话框明确选中某个 Skill 后，才要求当前 Agent 读取该 Skill 的完整入口与相对引用。依赖未安装插件或当前 Agent 不具备的工具时，由 Agent 明确提示能力限制。用户在当前请求中选择发布或上传类 Skill 时，不再仅因该动作重复确认；目标或内容不明确时仍需澄清。
@@ -180,7 +181,7 @@ Ailu 的 Vault 命名空间是 `.ailu/`，全局目录是 `~/.ailu/`。对话写
 - `~/.ailu/tmp/`、`~/.ailu/cache/`、`~/.ailu/logs/`：单次运行、缓存和日志目录。
 - `~/.ailu/lark/authorization.json`：不含令牌的飞书授权模式、CLI 版本和时间记录；真实凭据仍由 `lark-cli` 管理。
 
-Provider API Key 与公众号中转 Token 保存在 Obsidian SecretStorage，不写入 Vault 或上述普通 JSON 文件。如需改变全局存储位置，使用 `AILU_HOME`。多进程 writer gateway 与 Agent 进程树清理目前只承诺 macOS/POSIX；Windows 因没有等价的已验证 FileShare/LockFileEx 与 Job Object 边界，会 fail-closed 只读启动，不启动 Claude Code/Codex，也不执行对话、行内修改或设置写入。
+Provider API Key 与公众号中转 Token 保存在 Obsidian SecretStorage，不写入 Vault 或上述普通 JSON 文件。如需改变全局存储位置，使用 `AILU_HOME`。多进程 writer gateway 与 Agent 进程树清理目前只承诺 macOS/POSIX；Windows 因没有等价的已验证 FileShare/LockFileEx 与 Job Object 边界，会 fail-closed 只读启动，不启动 Claude Code/Codex/Pi/Antigravity CLI，也不执行对话、行内修改或设置写入。
 
 ## 公众号中转
 

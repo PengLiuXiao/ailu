@@ -3,6 +3,7 @@ import { createHmac, randomBytes } from 'crypto';
 import type {
   AgentId,
   AgentStatus,
+  AgyRuntimeStatus,
   ChatTurnRequest,
   CodexRuntimeStatus,
   PiRuntimeStatus,
@@ -19,6 +20,7 @@ import { AgentAdapter } from './adapter';
 import { runtimeEnvironment } from '../utils/env';
 import { CodexAppServerRuntime } from './codexRuntime';
 import { PiRpcRuntime } from './piRuntime';
+import { AgyRuntime } from './agyRuntime';
 import {
   CcSwitchClient,
   ccSwitchGlobalSnapshot,
@@ -75,6 +77,7 @@ export class RuntimeManager {
     private readonly ccSwitchClient = new CcSwitchClient(),
     private readonly codexRuntime = new CodexAppServerRuntime(),
     private readonly piRuntime = new PiRpcRuntime(),
+    private readonly agyRuntime = new AgyRuntime(),
   ) {}
 
   getCcSwitchSnapshot(): CcSwitchSnapshot {
@@ -120,7 +123,8 @@ export class RuntimeManager {
       configuredPaths: settings.configuredPaths,
       configSources: settings.configSources,
     }).resolve(request.agentId, {
-      withVersion: (request.agentId === 'codex' || request.agentId === 'pi') && process.platform !== 'win32',
+      withVersion: (request.agentId === 'codex' || request.agentId === 'pi' || request.agentId === 'antigravity')
+        && process.platform !== 'win32',
     });
     if (process.platform !== 'win32') return status;
     return {
@@ -148,6 +152,14 @@ export class RuntimeManager {
 
   onPiStatusChange(listener: (status: PiRuntimeStatus) => void): () => void {
     return this.piRuntime.onStatusChange(listener);
+  }
+
+  getAgyStatus(): AgyRuntimeStatus {
+    return this.agyRuntime.getStatus();
+  }
+
+  onAgyStatusChange(listener: (status: AgyRuntimeStatus) => void): () => void {
+    return this.agyRuntime.onStatusChange(listener);
   }
 
   /**
@@ -242,6 +254,38 @@ export class RuntimeManager {
     try {
       const status = await operation;
       if (this.lifecycle !== 'running' || epoch !== this.lifecycleEpoch) return this.piRuntime.getStatus();
+      return status;
+    } finally {
+      this.maintenanceOperations.delete(operation);
+    }
+  }
+
+  async refreshAgyStatus(): Promise<AgyRuntimeStatus> {
+    if (this.lifecycle !== 'running') return this.agyRuntime.getStatus();
+    if (process.platform === 'win32') {
+      await this.agyRuntime.markUnavailable('Windows 上无法验证 Antigravity CLI 子进程树已完整退出。');
+      return this.agyRuntime.getStatus();
+    }
+    const epoch = this.lifecycleEpoch;
+    const settings = this.getSettings();
+    const discovery = new RuntimeDiscovery({
+      configuredPaths: settings.configuredPaths,
+      configSources: settings.configSources,
+    }).resolve('antigravity', { withVersion: true });
+    const operation = discovery.binaryPath
+      ? this.agyRuntime.refreshStatus({
+        binaryPath: discovery.binaryPath,
+        binarySource: discovery.source,
+        version: discovery.version,
+        env: runtimeEnvironment(process.env, discovery.binaryPath),
+      })
+      : this.agyRuntime.markUnavailable(discovery.error ?? 'agy was not found.').then(() => (
+        this.agyRuntime.getStatus()
+      ));
+    this.maintenanceOperations.add(operation);
+    try {
+      const status = await operation;
+      if (this.lifecycle !== 'running' || epoch !== this.lifecycleEpoch) return this.agyRuntime.getStatus();
       return status;
     } finally {
       this.maintenanceOperations.delete(operation);
@@ -354,7 +398,7 @@ export class RuntimeManager {
       configuredPaths: settings.configuredPaths,
       configSources: settings.configSources,
     }).resolve(request.agentId, {
-      withVersion: request.agentId === 'codex' || request.agentId === 'pi',
+      withVersion: request.agentId === 'codex' || request.agentId === 'pi' || request.agentId === 'antigravity',
     });
     if (!status.binaryPath) {
       appendLocalLog('runtime_missing', { agentId: request.agentId, error: status.error });
@@ -432,6 +476,42 @@ export class RuntimeManager {
       }, deliver);
       appendLocalLog('runtime_turn_finish', {
         agentId: 'pi',
+        durationMs: Date.now() - startedAt,
+        cancelled: Boolean(request.signal?.aborted),
+      });
+      return;
+    }
+
+    if (request.agentId === 'antigravity') {
+      if (request.configSource !== 'localCli') {
+        deliver({
+          type: 'error',
+          message: 'Antigravity CLI 仅支持本机 Antigravity 配置。',
+          detail: 'Antigravity CLI 不使用供应商 Profile 或 CC Switch。',
+        });
+        deliver({ type: 'done' });
+        return;
+      }
+      const startedAt = Date.now();
+      appendLocalLog('runtime_turn_start', {
+        agentId: 'antigravity',
+        configSource: 'localCli',
+        binarySource: status.source,
+        model: request.model ?? null,
+      });
+      if (!this.executionFingerprintIsCurrent(request)) {
+        this.emitExecutionConfigChanged(deliver);
+        return;
+      }
+      await this.agyRuntime.runTurn(request, {
+        binaryPath: status.binaryPath,
+        binarySource: status.source,
+        version: status.version,
+        env: runtimeEnvironment(process.env, status.binaryPath),
+        executionIsCurrent: () => this.executionFingerprintIsCurrent(request),
+      }, deliver);
+      appendLocalLog('runtime_turn_finish', {
+        agentId: 'antigravity',
         durationMs: Date.now() - startedAt,
         cancelled: Boolean(request.signal?.aborted),
       });
@@ -644,6 +724,7 @@ export class RuntimeManager {
       ...adapterTeardowns,
       this.codexRuntime.cancelAll(),
       this.piRuntime.cancelAll(),
+      this.agyRuntime.cancelAll(),
     ]);
     for (const result of teardownResults) {
       if (result.status === 'rejected') failures.push(result.reason);
@@ -700,6 +781,12 @@ export class RuntimeManager {
       }
       try {
         await this.piRuntime.shutdown();
+      } catch (error) {
+        failures.push(error);
+        stopFailures.push(error);
+      }
+      try {
+        await this.agyRuntime.shutdown();
       } catch (error) {
         failures.push(error);
         stopFailures.push(error);
@@ -835,7 +922,7 @@ export class RuntimeManager {
       configuredPaths: settings.configuredPaths,
       configSources: settings.configSources,
     }).resolve(request.agentId, {
-      withVersion: request.agentId === 'codex' || request.agentId === 'pi',
+      withVersion: request.agentId === 'codex' || request.agentId === 'pi' || request.agentId === 'antigravity',
     });
     const selectedProfileId = request.providerProfileId?.trim()
       || settings.providerProfileByAgent[request.agentId]?.trim()
@@ -897,6 +984,6 @@ export class RuntimeManager {
   }
 }
 
-function isSupportedRuntimeAgentId(agentId: AgentId): agentId is 'claude' | 'codex' | 'pi' {
-  return agentId === 'claude' || agentId === 'codex' || agentId === 'pi';
+function isSupportedRuntimeAgentId(agentId: AgentId): agentId is 'claude' | 'codex' | 'pi' | 'antigravity' {
+  return agentId === 'claude' || agentId === 'codex' || agentId === 'pi' || agentId === 'antigravity';
 }

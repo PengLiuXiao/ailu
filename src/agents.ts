@@ -1,6 +1,6 @@
 import type { AgentDescriptor, AgentId } from './types';
 
-export const SELECTABLE_AGENT_IDS = ['claude', 'codex', 'pi'] as const;
+export const SELECTABLE_AGENT_IDS = ['claude', 'codex', 'pi', 'antigravity'] as const;
 export type SelectableAgentId = typeof SELECTABLE_AGENT_IDS[number];
 
 export const AGENT_DESCRIPTORS: Record<SelectableAgentId, AgentDescriptor> = {
@@ -40,6 +40,18 @@ export const AGENT_DESCRIPTORS: Record<SelectableAgentId, AgentDescriptor> = {
     supportsProviderProfiles: false,
     docsUrl: 'https://pi.dev/docs/latest/quickstart',
   },
+  antigravity: {
+    id: 'antigravity',
+    displayName: 'Antigravity CLI',
+    shortName: 'Antigravity',
+    packageName: '',
+    binaryName: 'agy',
+    bestFor: 'Local Antigravity turns over the headless NDJSON stream.',
+    supportsImages: false,
+    supportsInlineEdit: false,
+    supportsProviderProfiles: false,
+    docsUrl: 'https://www.antigravity.google/docs/cli',
+  },
 };
 
 export const AGENT_IDS: readonly SelectableAgentId[] = SELECTABLE_AGENT_IDS;
@@ -55,5 +67,5 @@ export function isAgentId(value: unknown): value is AgentId {
 }
 
 export function normalizeSelectableAgentId(value: unknown): SelectableAgentId {
-  return value === 'codex' || value === 'pi' ? value : 'claude';
+  return value === 'codex' || value === 'pi' || value === 'antigravity' ? value : 'claude';
 }

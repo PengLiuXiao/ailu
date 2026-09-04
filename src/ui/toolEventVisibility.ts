@@ -7,5 +7,6 @@ import type { AgentId, ToolCallEvent } from '../types';
  * failed tool calls visible so actionable failures are still surfaced.
  */
 export function shouldRenderToolEvent(agentId: AgentId, toolCall: ToolCallEvent): boolean {
-  return agentId !== 'codex' && agentId !== 'pi' || toolCall.status === 'error';
+  return agentId !== 'codex' && agentId !== 'pi' && agentId !== 'antigravity'
+    || toolCall.status === 'error';
 }

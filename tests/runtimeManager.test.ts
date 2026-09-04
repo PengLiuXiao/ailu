@@ -306,7 +306,7 @@ describe('RuntimeManager provider safeguards', () => {
     const providerStore = { find: () => profile } as unknown as ProviderStore;
     let settings: AiluSettings = {
       ...makeSettings(binaryPath),
-      fullAccessByAgent: { claude: true, codex: false, pi: false },
+      fullAccessByAgent: { claude: true, codex: false, pi: false, antigravity: false },
     };
     const manager = new RuntimeManager(providerStore, () => settings);
     const queuedRequest: ChatTurnRequest = { ...request, fullAccess: true };
@@ -336,7 +336,7 @@ describe('RuntimeManager provider safeguards', () => {
     const providerStore = { find: () => profile } as unknown as ProviderStore;
     const settings: AiluSettings = {
       ...makeSettings(binaryPath),
-      fullAccessByAgent: { claude: false, codex: false, pi: false },
+      fullAccessByAgent: { claude: false, codex: false, pi: false, antigravity: false },
     };
     const manager = new RuntimeManager(providerStore, () => settings);
     const events: RuntimeTurnEvent[] = [];
@@ -439,7 +439,7 @@ describe('RuntimeManager provider safeguards', () => {
       providerStore,
       () => ({
         ...makeLocalSettings('codex', '/unused/codex'),
-        fullAccessByAgent: { claude: false, codex: true, pi: false },
+        fullAccessByAgent: { claude: false, codex: true, pi: false, antigravity: false },
       }),
       ccSwitchClient(),
       codexRuntime,

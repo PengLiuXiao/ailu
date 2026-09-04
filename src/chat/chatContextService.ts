@@ -153,10 +153,13 @@ export class ChatContextService {
     const turnLimitReached = postCheckpointTurnCount >= this.checkpointTurnLimit;
 
     let source = deriveWindowSource(window);
-    // Codex provider threads and Pi native sessions can disappear underneath
-    // Ailu; both resume paths always carry a verified fresh-session handoff.
+    // Codex provider threads and Pi / Antigravity native sessions can
+    // disappear underneath Ailu; their resume paths always carry a verified
+    // fresh-session handoff.
     const nativeFallbackNeeded = canResume
-      && (input.targetAgentId === 'codex' || input.targetAgentId === 'pi');
+      && (input.targetAgentId === 'codex'
+        || input.targetAgentId === 'pi'
+        || input.targetAgentId === 'antigravity');
     if (!source.safe && (needsFreshHandoff || turnLimitReached || nativeFallbackNeeded)) {
       const full = await this.options.store.getConversation(conversationId);
       if (!full) throw new Error(`Conversation ${conversationId} was not found.`);
@@ -471,6 +474,7 @@ function appendCurrentPrompt(handoff: string, currentPrompt: string): string {
 function agentDisplayName(agentId: AgentId): string {
   if (agentId === 'claude') return 'Claude Code';
   if (agentId === 'pi') return 'Pi';
+  if (agentId === 'antigravity') return 'Antigravity';
   return 'Codex';
 }
 

@@ -652,15 +652,17 @@ export class AiluSettingTab extends PluginSettingTab {
       };
     }
 
-    if (agentId === 'codex' || agentId === 'pi') {
+    if (agentId === 'codex' || agentId === 'pi' || agentId === 'antigravity') {
       const runtimeMode = new Setting(section)
         .setName('运行方式')
         .setDesc(agentId === 'codex'
           ? '使用官方 ChatGPT / Codex 桌面应用内置的 App Server；模型与推理强度从本机实时读取。'
-          : 'Ailu 为每个回合启动独立的 Pi RPC 进程；模型与思考级别跟随本机 Pi 配置，或在对话中显式选择。');
+          : agentId === 'pi'
+            ? 'Ailu 为每个回合启动独立的 Pi RPC 进程；模型与思考级别跟随本机 Pi 配置，或在对话中显式选择。'
+            : 'Ailu 为每个回合启动独立的 Antigravity headless 进程；模型与推理强度跟随本机配置，或在对话中显式选择。');
       runtimeMode.controlEl.createSpan({
         cls: 'ailu-readonly-value',
-        text: agentId === 'codex' ? '本地 App Server' : '本地 RPC 进程',
+        text: agentId === 'codex' ? '本地 App Server' : agentId === 'pi' ? '本地 RPC 进程' : '本地 Headless 进程',
       });
     } else {
       const configSourceSetting = new Setting(section)
@@ -722,6 +724,12 @@ export class AiluSettingTab extends PluginSettingTab {
             await this.deps.saveSettings();
             this.deps.refreshViews();
           }));
+    }
+
+    if (agentId === 'antigravity') {
+      new Setting(section)
+        .setName('权限说明')
+        .setDesc('Antigravity CLI 的 headless 流没有交互式权限确认通道（权限请求会直接结束会话），因此每个回合都以完全访问运行。请仅在本机环境信任 Agent 行为时使用。');
     }
 
     if (agentId === 'codex') {
@@ -796,6 +804,11 @@ export class AiluSettingTab extends PluginSettingTab {
       return;
     }
 
+    if (agentId === 'antigravity') {
+      this.renderAgyStatus(section, status);
+      return;
+    }
+
     if (agentId === 'claude' && settings.configSources.claude === 'ccSwitchCurrent') {
       return;
     }
@@ -847,6 +860,34 @@ export class AiluSettingTab extends PluginSettingTab {
     if (piStatus.state === 'idle' && status.binaryPath) {
       void this.deps.runtimeManager.refreshPiStatus().then(() => {
         if (this.activeTab === 'pi') this.display();
+      });
+    }
+  }
+
+  private renderAgyStatus(section: HTMLElement, status: AgentStatus): void {
+    const agyStatus = this.deps.runtimeManager.getAgyStatus();
+    const statusText = agyStatus.state === 'ready'
+      ? `已连接 · ${agyStatus.models.length} 个模型可用`
+      : agyStatus.state === 'connecting'
+        ? '正在读取 Antigravity CLI 模型列表…'
+        : agyStatus.state === 'error'
+          ? `连接失败：${agyStatus.error ?? 'Antigravity CLI 暂时不可用。'}`
+          : status.binaryPath
+            ? '尚未连接，打开 Antigravity 对话或点击刷新。'
+            : '未检测到 Antigravity CLI，请先安装 agy。';
+    new Setting(section)
+      .setName('Antigravity CLI 服务')
+      .setDesc(statusText)
+      .addButton(button => button
+        .setButtonText('重新检测')
+        .onClick(async () => {
+          button.setDisabled(true);
+          await this.deps.runtimeManager.refreshAgyStatus();
+          this.display();
+        }));
+    if (agyStatus.state === 'idle' && status.binaryPath) {
+      void this.deps.runtimeManager.refreshAgyStatus().then(() => {
+        if (this.activeTab === 'antigravity') this.display();
       });
     }
   }

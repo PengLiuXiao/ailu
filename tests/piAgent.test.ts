@@ -58,7 +58,7 @@ describe('Pi Agent roster and settings migration', () => {
 
   test('rejects unsupported Pi config sources back to localCli', () => {
     const normalized = normalizeAgentSettings({
-      configSources: { claude: 'localCli', codex: 'localCli', pi: 'providerProfile' },
+      configSources: { claude: 'localCli', codex: 'localCli', pi: 'providerProfile', antigravity: 'localCli' },
     });
     expect(normalized.configSources.pi).toBe('localCli');
   });
@@ -69,7 +69,7 @@ describe('Pi Agent roster and settings migration', () => {
       { sharedEnvironmentVariables: { SECRET: 'x' }, defaultAgentId: 'codex' },
       normalized,
     );
-    expect(canonical.configSources).toEqual({ claude: 'localCli', codex: 'localCli', pi: 'localCli' });
+    expect(canonical.configSources).toEqual({ claude: 'localCli', codex: 'localCli', pi: 'localCli', antigravity: 'localCli' });
     expect(canonical.defaultAgentId).toBe('codex');
     expect(canonical.sharedEnvironmentVariables).toBeUndefined();
   });

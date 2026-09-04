@@ -37,6 +37,7 @@ export function normalizeAgentSettings(
         : 'localCli',
       codex: 'localCli',
       pi: 'localCli',
+      antigravity: 'localCli',
     },
     configuredPaths: {
       claude: typeof value?.configuredPaths?.claude === 'string'
@@ -48,6 +49,9 @@ export function normalizeAgentSettings(
       pi: typeof value?.configuredPaths?.pi === 'string'
         ? value.configuredPaths.pi
         : DEFAULT_SETTINGS.configuredPaths.pi,
+      antigravity: typeof value?.configuredPaths?.antigravity === 'string'
+        ? value.configuredPaths.antigravity
+        : DEFAULT_SETTINGS.configuredPaths.antigravity,
     },
     providerProfileByAgent: {
       claude: typeof value?.providerProfileByAgent?.claude === 'string'
@@ -59,6 +63,9 @@ export function normalizeAgentSettings(
       pi: typeof value?.providerProfileByAgent?.pi === 'string'
         ? value.providerProfileByAgent.pi
         : DEFAULT_SETTINGS.providerProfileByAgent.pi,
+      antigravity: typeof value?.providerProfileByAgent?.antigravity === 'string'
+        ? value.providerProfileByAgent.antigravity
+        : DEFAULT_SETTINGS.providerProfileByAgent.antigravity,
     },
     localModelByAgent: {
       claude: typeof value?.localModelByAgent?.claude === 'string'
@@ -70,6 +77,9 @@ export function normalizeAgentSettings(
       pi: typeof value?.localModelByAgent?.pi === 'string'
         ? value.localModelByAgent.pi
         : DEFAULT_SETTINGS.localModelByAgent.pi,
+      antigravity: typeof value?.localModelByAgent?.antigravity === 'string'
+        ? value.localModelByAgent.antigravity
+        : DEFAULT_SETTINGS.localModelByAgent.antigravity,
     },
     reasoningEffortByAgent: {
       claude: typeof value?.reasoningEffortByAgent?.claude === 'string'
@@ -81,6 +91,9 @@ export function normalizeAgentSettings(
       pi: typeof value?.reasoningEffortByAgent?.pi === 'string'
         ? value.reasoningEffortByAgent.pi
         : DEFAULT_SETTINGS.reasoningEffortByAgent.pi,
+      antigravity: typeof value?.reasoningEffortByAgent?.antigravity === 'string'
+        ? value.reasoningEffortByAgent.antigravity
+        : DEFAULT_SETTINGS.reasoningEffortByAgent.antigravity,
     },
     fullAccessByAgent: normalizeFullAccessByAgent(value?.fullAccessByAgent),
     creativeSkillNames: normalizeSelectedSkillNames(value?.creativeSkillNames),

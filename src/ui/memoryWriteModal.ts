@@ -495,7 +495,13 @@ export function classifyMemorySource(
   return {
     sourceClass: 'agent_inferred',
     knowledgeKind: 'inference',
-    assertedBy: agentId === 'pi' ? 'pi' : agentId === 'claude' ? 'claude' : 'codex',
+    assertedBy: agentId === 'pi'
+      ? 'pi'
+      : agentId === 'claude'
+        ? 'claude'
+        : agentId === 'antigravity'
+          ? 'antigravity'
+          : 'codex',
   };
 }
 

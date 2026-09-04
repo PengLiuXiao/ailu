@@ -97,6 +97,8 @@ import {
   shouldResumeCodexSession,
   shouldResumePiSession,
   buildPiSessionConfigKey,
+  shouldResumeAgySession,
+  buildAgySessionConfigKey,
 } from './chatAgentSelection';
 import { chatMessageRoleLabel, compactModelButtonLabel, reasoningEffortLabel } from './chatLabels';
 import {
@@ -251,6 +253,7 @@ export class AiluChatView extends ItemView {
   private submenuHideTimeout: number | null = null;
   private codexStatusUnsubscribe: (() => void) | null = null;
   private piStatusUnsubscribe: (() => void) | null = null;
+  private agyStatusUnsubscribe: (() => void) | null = null;
   private ccSwitchStatusUnsubscribe: (() => void) | null = null;
   private lastReadyCcSwitchProviderId: string | null = null;
   private chatWriteStateUnsubscribe: (() => void) | null = null;
@@ -333,6 +336,13 @@ export class AiluChatView extends ItemView {
         this.refreshStatus();
       });
     }
+    if (!this.agyStatusUnsubscribe) {
+      this.agyStatusUnsubscribe = this.deps.runtimeManager.onAgyStatusChange(() => {
+        if (this.agentId !== 'antigravity') return;
+        this.refreshAgentControls();
+        this.refreshStatus();
+      });
+    }
     if (!this.ccSwitchStatusUnsubscribe) {
       this.ccSwitchStatusUnsubscribe = this.deps.runtimeManager.onCcSwitchStatusChange(snapshot => {
         if (this.agentId !== 'claude') return;
@@ -370,6 +380,9 @@ export class AiluChatView extends ItemView {
     if (this.agentId === 'pi' && this.deps.runtimeManager.getPiStatus().state === 'idle') {
       void this.deps.runtimeManager.refreshPiStatus();
     }
+    if (this.agentId === 'antigravity' && this.deps.runtimeManager.getAgyStatus().state === 'idle') {
+      void this.deps.runtimeManager.refreshAgyStatus();
+    }
     if (promptRuntimeSetup) this.openRuntimeSetup();
   }
 
@@ -385,6 +398,10 @@ export class AiluChatView extends ItemView {
     this.hideHistoryPopover();
     this.codexStatusUnsubscribe?.();
     this.codexStatusUnsubscribe = null;
+    this.piStatusUnsubscribe?.();
+    this.piStatusUnsubscribe = null;
+    this.agyStatusUnsubscribe?.();
+    this.agyStatusUnsubscribe = null;
     this.ccSwitchStatusUnsubscribe?.();
     this.ccSwitchStatusUnsubscribe = null;
     this.chatWriteStateUnsubscribe?.();
@@ -948,6 +965,14 @@ export class AiluChatView extends ItemView {
           return findPiModel(status.models, selectedModel)?.name ?? selectedModel;
         }
         return piFollowLocalLabel(status);
+      }
+      if (agentId === 'antigravity') {
+        const status = this.deps.runtimeManager.getAgyStatus();
+        const selectedModel = settings.localModelByAgent.antigravity?.trim() ?? '';
+        if (selectedModel) {
+          return status.models.find(model => model.id === selectedModel)?.name ?? selectedModel;
+        }
+        return '跟随 Antigravity';
       }
       if (agentId === 'codex') {
         const status = this.deps.runtimeManager.getCodexStatus();
@@ -1601,6 +1626,10 @@ export class AiluChatView extends ItemView {
       this.renderPiModelDropdown(dropdown);
       return;
     }
+    if (this.agentId === 'antigravity') {
+      this.renderAgyModelDropdown(dropdown);
+      return;
+    }
 
     const selectedLocalModel = settings.localModelByAgent[this.agentId] ?? '';
     const localModels = listLocalModels(this.agentId);
@@ -1754,6 +1783,12 @@ export class AiluChatView extends ItemView {
         autoNote: model && model.thinkingLevels.length > 0
           ? '跟随 Pi 本机配置'
           : '当前模型未声明思考级别',
+      };
+    }
+    if (this.agentId === 'antigravity') {
+      return {
+        efforts: ['low', 'medium', 'high'],
+        autoNote: '跟随 Antigravity 本机配置',
       };
     }
     if (this.agentId === 'codex') {
@@ -1950,6 +1985,98 @@ export class AiluChatView extends ItemView {
     return null;
   }
 
+  private renderAgyModelDropdown(dropdown: HTMLElement): void {
+    const status = this.deps.runtimeManager.getAgyStatus();
+    const settings = this.deps.getSettings();
+    const selectedModel = settings.localModelByAgent.antigravity?.trim() ?? '';
+
+    if (status.state === 'idle') {
+      void this.deps.runtimeManager.refreshAgyStatus();
+    }
+    const searchWrap = dropdown.createDiv({ cls: 'ailu-model-group' });
+    const searchInput = searchWrap.createEl('input', {
+      cls: 'ailu-model-search-input',
+      attr: { type: 'text', placeholder: '搜索模型', 'aria-label': '搜索 Antigravity 模型' },
+    });
+    const results = dropdown.createDiv();
+
+    const renderOptions = (query: string): void => {
+      results.empty();
+      results.createDiv({ cls: 'ailu-model-group', text: '本机 Antigravity' });
+      const followOption = results.createDiv({ cls: 'ailu-model-option' });
+      followOption.toggleClass('selected', !selectedModel);
+      const followIcon = followOption.createSpan({ cls: 'ailu-option-icon' });
+      setIcon(followIcon, status.state === 'error' ? 'circle-alert' : 'hard-drive');
+      followOption.createSpan({ text: '跟随本机' });
+      followOption.onclick = event => {
+        event.stopPropagation();
+        void this.selectAgyModel('');
+      };
+
+      const models = status.models.filter(model => !query
+        || model.name.toLowerCase().includes(query)
+        || model.id.toLowerCase().includes(query));
+      if (status.models.length === 0) {
+        results.createDiv({ cls: 'ailu-model-group', text: '可用模型' });
+        const empty = results.createDiv({ cls: 'ailu-model-option disabled' });
+        const emptyIcon = empty.createSpan({ cls: 'ailu-option-icon' });
+        setIcon(emptyIcon, status.state === 'error' ? 'circle-alert' : 'loader');
+        empty.createSpan({
+          text: status.state === 'error' ? '模型列表读取失败' : '正在读取模型列表…',
+        });
+        if (status.state === 'error') {
+          const retry = results.createDiv({ cls: 'ailu-model-option' });
+          const retryIcon = retry.createSpan({ cls: 'ailu-option-icon' });
+          setIcon(retryIcon, 'rotate-ccw');
+          retry.createSpan({ text: '重新读取模型列表' });
+          retry.onclick = event => {
+            event.stopPropagation();
+            void this.deps.runtimeManager.refreshAgyStatus();
+          };
+        }
+        return;
+      }
+      if (query && models.length === 0) {
+        results.createDiv({ cls: 'ailu-model-group', text: '可用模型' });
+        const none = results.createDiv({ cls: 'ailu-model-option disabled' });
+        none.createSpan({ text: '没有匹配的模型' });
+        return;
+      }
+      for (const model of models) {
+        const option = results.createDiv({ cls: 'ailu-model-option' });
+        const isSelected = selectedModel === model.id;
+        option.toggleClass('selected', isSelected);
+        const icon = option.createSpan({ cls: 'ailu-option-icon' });
+        setIcon(icon, 'cpu');
+        option.createSpan({ text: model.name });
+        option.createSpan({ cls: 'ailu-option-note', text: model.id });
+        if (isSelected) {
+          const checkIcon = option.createSpan({ cls: 'ailu-option-check' });
+          setIcon(checkIcon, 'check');
+        }
+        option.onclick = event => {
+          event.stopPropagation();
+          void this.selectAgyModel(model.id);
+        };
+      }
+    };
+    searchInput.addEventListener('input', () => {
+      renderOptions(searchInput.value.trim().toLowerCase());
+    });
+    renderOptions('');
+    window.setTimeout(() => searchInput.focus(), 0);
+  }
+
+  private async selectAgyModel(modelId: string): Promise<void> {
+    const settings = this.deps.getSettings();
+    settings.configSources.antigravity = 'localCli';
+    settings.localModelByAgent.antigravity = modelId;
+    this.closeAllDropdowns();
+    this.refreshAgentControls();
+    this.refreshStatus();
+    await this.queueSettingsSave();
+  }
+
   private async selectPiModel(modelKey: string): Promise<void> {
     const settings = this.deps.getSettings();
     const status = this.deps.runtimeManager.getPiStatus();
@@ -1974,6 +2101,18 @@ export class AiluChatView extends ItemView {
       status = await this.deps.runtimeManager.refreshPiStatus();
     }
     return resolvePiSendModelGuard({ selectedModel, status });
+  }
+
+  private guardAgyModelSelection(settings: AiluSettings): { blocked: boolean; message?: string } {
+    const selectedModel = settings.localModelByAgent.antigravity?.trim() ?? '';
+    if (!selectedModel) return { blocked: false };
+    const status = this.deps.runtimeManager.getAgyStatus();
+    if (status.state !== 'ready') return { blocked: false };
+    if (status.models.some(model => model.id === selectedModel)) return { blocked: false };
+    return {
+      blocked: true,
+      message: `所选 Antigravity 模型 ${selectedModel} 当前不可用。请在模型选择器中改回“跟随本机”，或重新选择可用模型。`,
+    };
   }
 
   private renderCodexModelDropdown(dropdown: HTMLElement): void {
@@ -3124,6 +3263,13 @@ export class AiluChatView extends ItemView {
         return;
       }
     }
+    if (agentId === 'antigravity') {
+      const guard = this.guardAgyModelSelection(settings);
+      if (guard.blocked) {
+        new Notice(guard.message ?? '所选 Antigravity 模型当前不可用。');
+        return;
+      }
+    }
     const providerProfile = agentId === 'claude' && configSource === 'providerProfile'
       ? this.deps.providerStore.find(agentId, settings.providerProfileByAgent[agentId])
       : null;
@@ -3173,11 +3319,19 @@ export class AiluChatView extends ItemView {
         customizationMode: settings.piCustomizationMode ?? 'user',
       })
       : '';
+    const agySessionConfigKey = agentId === 'antigravity'
+      ? buildAgySessionConfigKey({
+        model: modelOverride ?? '',
+        effort: reasoningEffort,
+      })
+      : '';
     const sessionConfigKey = agentId === 'claude'
       ? claudeSessionConfigKey
       : agentId === 'pi'
         ? piSessionConfigKey
-        : codexSessionConfigKey;
+        : agentId === 'antigravity'
+          ? agySessionConfigKey
+          : codexSessionConfigKey;
     const runtimeModel = configSource === 'localCli'
       ? resolvedLocalClaudeModel?.cliModel || modelOverride
       : configSource === 'ccSwitchCurrent'
@@ -3211,6 +3365,10 @@ export class AiluChatView extends ItemView {
         return;
       }
     }
+    if (agentId === 'antigravity' && attachments.length > 0) {
+      new Notice('Antigravity CLI 的 headless 模式不支持图片附件。请移除附件，或把图片放入 Vault 后让 Agent 用工具自行读取。');
+      return;
+    }
     const userMessage: ChatMessage = {
       id: createId('msg'),
       role: 'user',
@@ -3241,11 +3399,17 @@ export class AiluChatView extends ItemView {
           conversation.sessionConfigKeys?.pi,
           piSessionConfigKey,
         ) ? storedSessionId : undefined
-        : shouldResumeCodexSession(
-          storedSessionId,
-          conversation.sessionConfigKeys?.codex,
-          codexSessionConfigKey,
-        ) ? storedSessionId : undefined;
+        : agentId === 'antigravity'
+          ? shouldResumeAgySession(
+            storedSessionId,
+            conversation.sessionConfigKeys?.antigravity,
+            agySessionConfigKey,
+          ) ? storedSessionId : undefined
+          : shouldResumeCodexSession(
+            storedSessionId,
+            conversation.sessionConfigKeys?.codex,
+            codexSessionConfigKey,
+          ) ? storedSessionId : undefined;
     const sessionId = this.canResumeSession(conversation.id, agentId, resumeCandidate)
       ? resumeCandidate
       : undefined;
@@ -4203,6 +4367,7 @@ const HISTORY_AGENT_ICONS: Record<AgentId, string> = {
   claude: 'bot',
   codex: 'terminal',
   pi: 'sparkles',
+  antigravity: 'orbit',
 };
 
 function formatRelativeTime(timestamp: number): string {

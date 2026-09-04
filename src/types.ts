@@ -9,7 +9,7 @@ import {
   type XPublishingSettings,
 } from './settings/xPublishingSettings';
 
-export type AgentId = 'claude' | 'codex' | 'pi';
+export type AgentId = 'claude' | 'codex' | 'pi' | 'antigravity';
 
 export type RuntimeConfigSource = 'localCli' | 'ccSwitchCurrent' | 'providerProfile';
 
@@ -369,6 +369,23 @@ export interface PiRuntimeStatus {
   error: string | null;
 }
 
+export interface AgyModelDescriptor {
+  /** Model id accepted by `agy --model`, for example gemini-3.8-flash-high. */
+  id: string;
+  /** User-facing label reported by `agy models`. */
+  name: string;
+}
+
+export interface AgyRuntimeStatus {
+  state: 'idle' | 'connecting' | 'ready' | 'error';
+  binaryPath: string | null;
+  binarySource: RuntimeBinarySource | null;
+  version: string | null;
+  /** Models reported by `agy models`; empty = follow the local default. */
+  models: AgyModelDescriptor[];
+  error: string | null;
+}
+
 export interface StoredConversation {
   id: string;
   title: string;
@@ -440,36 +457,42 @@ export const DEFAULT_CONFIG_SOURCES: ConfigSourcesByAgent = {
   claude: 'localCli',
   codex: 'localCli',
   pi: 'localCli',
+  antigravity: 'localCli',
 };
 
 export const DEFAULT_CONFIGURED_PATHS: ConfiguredPathsByAgent = {
   claude: '',
   codex: '',
   pi: '',
+  antigravity: '',
 };
 
 export const DEFAULT_PROFILE_SELECTION: ProfileSelectionByAgent = {
   claude: '',
   codex: '',
   pi: '',
+  antigravity: '',
 };
 
 export const DEFAULT_LOCAL_MODELS: LocalModelByAgent = {
   claude: '',
   codex: '',
   pi: '',
+  antigravity: '',
 };
 
 export const DEFAULT_REASONING_EFFORTS: ReasoningEffortByAgent = {
   claude: '',
   codex: '',
   pi: '',
+  antigravity: '',
 };
 
 export const DEFAULT_FULL_ACCESS: FullAccessByAgent = {
   claude: false,
   codex: false,
   pi: false,
+  antigravity: false,
 };
 
 export function normalizeFullAccessByAgent(
@@ -479,6 +502,9 @@ export function normalizeFullAccessByAgent(
     claude: typeof value?.claude === 'boolean' ? value.claude : DEFAULT_FULL_ACCESS.claude,
     codex: typeof value?.codex === 'boolean' ? value.codex : DEFAULT_FULL_ACCESS.codex,
     pi: typeof value?.pi === 'boolean' ? value.pi : DEFAULT_FULL_ACCESS.pi,
+    antigravity: typeof value?.antigravity === 'boolean'
+      ? value.antigravity
+      : DEFAULT_FULL_ACCESS.antigravity,
   };
 }
 
