@@ -3804,8 +3804,9 @@ export class AiluChatView extends ItemView {
       if (!supported.has(effort)) return;
     } else if (this.agentId === 'antigravity') {
       if (!['', 'low', 'medium', 'high'].includes(effort)) return;
-    } else {
-      return;
+    } else if (this.agentId === 'pi') {
+      const supported = new Set(['', ...(this.getSelectedPiModel(settings)?.thinkingLevels ?? [])]);
+      if (!supported.has(effort)) return;
     }
     settings.reasoningEffortByAgent[this.agentId] = effort;
     this.closeAllDropdowns();
