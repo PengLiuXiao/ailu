@@ -1897,6 +1897,9 @@ export class AiluChatView extends ItemView {
     if (agentId === 'claude') {
       return reconcileClaudeReasoningEffort(this.getClaudeReasoningCapability(settings), selected);
     }
+    if (agentId === 'antigravity') {
+      return ['low', 'medium', 'high'].includes(selected) ? selected : '';
+    }
     return '';
   }
 
@@ -3799,6 +3802,8 @@ export class AiluChatView extends ItemView {
     } else if (this.agentId === 'claude') {
       const supported = new Set(['', ...this.getClaudeReasoningCapability(settings).supportedEfforts]);
       if (!supported.has(effort)) return;
+    } else if (this.agentId === 'antigravity') {
+      if (!['', 'low', 'medium', 'high'].includes(effort)) return;
     } else {
       return;
     }
