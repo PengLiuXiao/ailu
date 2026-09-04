@@ -9,6 +9,7 @@ import {
   buildAgyTurnArgs,
   composeAgyUserMessage,
   parseAgyModelsOutput,
+  resolveAgyTurnModelSelection,
 } from '../src/runtime/agyRuntime';
 
 function sleep(ms: number): Promise<void> {
@@ -32,6 +33,8 @@ function writeFakeAgy(executablePath: string, options: FakeAgyOptions): void {
     "if (process.argv.includes('models')) {",
     "  console.error('Fetching available models...');",
     "  process.stdout.write('gemini-3.8-flash-high\\tGemini 3.8 Flash (High)\\n');",
+    "  process.stdout.write('gemini-3.8-flash-medium\\tGemini 3.8 Flash (Medium)\\n');",
+    "  process.stdout.write('gemini-3.8-flash-low\\tGemini 3.8 Flash (Low)\\n');",
     "  process.stdout.write('claude-sonnet-4-6\\tClaude Sonnet 4.6 (Thinking)\\n');",
     "  process.exit(0);",
     '}',
@@ -146,13 +149,38 @@ describe('agy build helpers', () => {
     expect(message.message.content).toEqual([{ type: 'text', text: '你是助手\n\n你好' }]);
   });
 
-  test('parses the models TSV output', () => {
+  test('folds effort variants into a single base model entry', () => {
     expect(parseAgyModelsOutput(
-      'gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n\nnot-a-model-line\nclaude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n',
+      'gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n'
+      + 'gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n'
+      + 'gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n'
+      + 'gemini-3.1-pro-high\tGemini 3.1 Pro (High)\n'
+      + 'gemini-3.1-pro-low\tGemini 3.1 Pro (Low)\n'
+      + 'claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n'
+      + 'gpt-oss-120b-medium\tGPT-OSS 120B (Medium)\n',
     )).toEqual([
-      { id: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash (High)' },
+      { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', defaultEffort: 'high' },
+      { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', defaultEffort: 'high' },
       { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6 (Thinking)' },
+      { id: 'gpt-oss-120b-medium', name: 'GPT-OSS 120B (Medium)' },
     ]);
+  });
+
+  test('reconciles base/full model ids with the effort flag', () => {
+    const models = parseAgyModelsOutput(
+      'gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n'
+      + 'gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n'
+      + 'gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n'
+      + 'gpt-oss-120b-medium\tGPT-OSS 120B (Medium)\n',
+    );
+    expect(resolveAgyTurnModelSelection({ model: 'gemini-3.8-flash', reasoningEffort: '' }, models))
+      .toEqual({ model: 'gemini-3.8-flash', effort: 'high' });
+    expect(resolveAgyTurnModelSelection({ model: 'gemini-3.8-flash', reasoningEffort: 'low' }, models))
+      .toEqual({ model: 'gemini-3.8-flash', effort: 'low' });
+    expect(resolveAgyTurnModelSelection({ model: 'gpt-oss-120b-medium', reasoningEffort: 'low' }, models))
+      .toEqual({ model: 'gpt-oss-120b-medium', effort: '' });
+    expect(resolveAgyTurnModelSelection({ model: '', reasoningEffort: 'low' }, models))
+      .toEqual({ model: '', effort: 'low' });
   });
 });
 
@@ -192,7 +220,7 @@ describe('AgyRuntime', () => {
     const status = await runtime.refreshStatus(makeConnection(binaryPath));
     expect(status.state).toBe('ready');
     expect(status.models).toEqual([
-      { id: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash (High)' },
+      { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', defaultEffort: 'high' },
       { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6 (Thinking)' },
     ]);
   });

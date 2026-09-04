@@ -2115,6 +2115,13 @@ export class AiluChatView extends ItemView {
     const settings = this.deps.getSettings();
     settings.configSources.antigravity = 'localCli';
     settings.localModelByAgent.antigravity = modelId;
+    const status = this.deps.runtimeManager.getAgyStatus();
+    const model = modelId ? status.models.find(candidate => candidate.id === modelId) : null;
+    // A base Gemini id needs an explicit effort alongside it; seed the picker
+    // with the family default so the selection is complete on its own.
+    if (model?.defaultEffort && !settings.reasoningEffortByAgent.antigravity) {
+      settings.reasoningEffortByAgent.antigravity = model.defaultEffort;
+    }
     this.closeAllDropdowns();
     this.refreshAgentControls();
     this.refreshStatus();

@@ -807,7 +807,7 @@ export class AiluSettingTab extends PluginSettingTab {
     if (agentId === 'antigravity') {
       new Setting(section)
         .setName('模型 ID')
-        .setDesc('可选；留空时跟随本机默认模型。模型列表读取失败时可直接填写，例如 gemini-3.8-flash-high。')
+        .setDesc('可选；留空时跟随本机默认模型。填写基础 ID（例如 gemini-3.8-flash，推理强度由独立控件控制）或完整 ID（例如 gemini-3.8-flash-high）均可。模型列表读取失败时也可直接填写。')
         .addText(text => {
           text
             .setPlaceholder('跟随本机')

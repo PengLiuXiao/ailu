@@ -71,9 +71,18 @@ export function composeAgyUserMessage(request: ChatTurnRequest): string {
   });
 }
 
-/** Parses the `agy models` TSV output: one `id<TAB>name` pair per line. */
+/**
+ * Parses the `agy models` TSV output: one `id<TAB>name` pair per line.
+ *
+ * `agy` encodes the reasoning effort in the model id of Gemini-family models
+ * (gemini-3.8-flash-high / -medium / -low). Those families are folded into a
+ * single base-model entry so the model picker stays short; the independent
+ * effort picker drives `--effort` instead. Families with a single entry (for
+ * example gpt-oss-120b-medium) keep their full id, because dropping "-medium"
+ * would invent a model the CLI does not know.
+ */
 export function parseAgyModelsOutput(stdout: string): AgyModelDescriptor[] {
-  const models: AgyModelDescriptor[] = [];
+  const raw: Array<{ id: string; name: string }> = [];
   for (const line of stdout.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -81,9 +90,66 @@ export function parseAgyModelsOutput(stdout: string): AgyModelDescriptor[] {
     if (tab <= 0) continue;
     const id = trimmed.slice(0, tab).trim();
     const name = trimmed.slice(tab + 1).trim();
-    if (id && name) models.push({ id, name });
+    if (id && name) raw.push({ id, name });
+  }
+
+  const families = new Map<string, Array<{ id: string; name: string; effort: string }>>();
+  for (const entry of raw) {
+    const match = /-(low|medium|high)$/.exec(entry.id);
+    if (!match) continue;
+    const base = entry.id.slice(0, match.index);
+    const family = families.get(base) ?? [];
+    family.push({ ...entry, effort: match[1] });
+    families.set(base, family);
+  }
+
+  const foldedIds = new Set<string>();
+  for (const [base, variants] of families) {
+    if (variants.length >= 2) foldedIds.add(base);
+  }
+
+  const models: AgyModelDescriptor[] = [];
+  for (const entry of raw) {
+    const match = /-(low|medium|high)$/.exec(entry.id);
+    const base = match ? entry.id.slice(0, match.index) : '';
+    if (match && foldedIds.has(base)) {
+      if (models.some(model => model.id === base)) continue;
+      const variants = families.get(base) ?? [];
+      models.push({
+        id: base,
+        name: variants[0].name.replace(/\s*\((?:High|Medium|Low)\)$/, ''),
+        defaultEffort: variants[0].effort,
+      });
+      continue;
+    }
+    if (!models.some(model => model.id === entry.id)) {
+      models.push({ id: entry.id, name: entry.name });
+    }
   }
   return models;
+}
+
+/**
+ * Reconciles the requested model and effort into the exact `agy` flag pair.
+ *
+ * - `--model <base>` (for example gemini-3.8-flash) requires an explicit
+ *   `--effort`; an empty picker falls back to the family's default level.
+ * - A full id already encodes its level, and passing `--effort` alongside it
+ *   makes `agy` abort the turn ("conflicts with --effort"), so the effort
+ *   flag is dropped for those models.
+ */
+export function resolveAgyTurnModelSelection(
+  request: Pick<ChatTurnRequest, 'model' | 'reasoningEffort'>,
+  models: readonly AgyModelDescriptor[],
+): { model: string; effort: string } {
+  const selected = request.model?.trim() ?? '';
+  const effort = request.reasoningEffort?.trim() ?? '';
+  if (!selected) return { model: '', effort };
+  const descriptor = models.find(model => model.id === selected);
+  if (descriptor?.defaultEffort) {
+    return { model: selected, effort: effort || descriptor.defaultEffort };
+  }
+  return { model: selected, effort: '' };
 }
 
 /**
@@ -212,7 +278,13 @@ export class AgyRuntime extends EventEmitter {
       return;
     }
 
-    const child = spawn(connection.binaryPath, buildAgyTurnArgs(request), {
+    const resolvedSelection = resolveAgyTurnModelSelection(request, this.status.models);
+    const runtimeRequest = {
+      ...request,
+      model: resolvedSelection.model || undefined,
+      reasoningEffort: resolvedSelection.effort || undefined,
+    };
+    const child = spawn(connection.binaryPath, buildAgyTurnArgs(runtimeRequest), {
       env: connection.env,
       cwd: request.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],

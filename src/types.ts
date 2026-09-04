@@ -370,10 +370,16 @@ export interface PiRuntimeStatus {
 }
 
 export interface AgyModelDescriptor {
-  /** Model id accepted by `agy --model`, for example gemini-3.8-flash-high. */
+  /** Base model id accepted by `agy --model`, for example gemini-3.8-flash. */
   id: string;
-  /** User-facing label reported by `agy models`. */
+  /** User-facing label reported by `agy models` with the effort suffix folded away. */
   name: string;
+  /**
+   * Effort level the CLI accepts `--effort` for when this base id is passed to
+   * `--model` (for example high for gemini-3.8-flash). Absent for models whose
+   * id already encodes its level (for example claude-sonnet-4-6).
+   */
+  defaultEffort?: string;
 }
 
 export interface AgyRuntimeStatus {
