@@ -260,6 +260,20 @@ describe('ccSwitchProviderChangeNotice', () => {
       currentProvider: null,
     })).toBe('CC Switch 已切换供应商：d804627f，当前模型 claude-opus-4-7');
   });
+
+  test('reports the overridden model when a family override is active', () => {
+    expect(ccSwitchProviderChangeNotice(
+      'b9105c46-0107-4d4f-a587-c7b312784637',
+      {
+        ...baseSnapshot,
+        routeEnvironment: {
+          ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'claude-opus-4-7',
+          ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME: 'claude-haiku-4-5',
+        },
+      },
+      'haiku',
+    )).toBe('CC Switch 已切换供应商：ClaudeCN，当前模型 claude-haiku-4-5');
+  });
 });
 
 describe('ccSwitchGlobalSnapshot', () => {
@@ -289,6 +303,36 @@ describe('ccSwitchGlobalSnapshot', () => {
       currentModel: 'deepseek-v4-pro',
       routeFingerprint: 'route:deepseek',
     });
+  });
+
+  test('re-resolves the route when a model override selects another family', () => {
+    const snapshot: CcSwitchSnapshot = {
+      state: 'ready',
+      currentProvider: 'Zhipu GLM',
+      currentProviderId: 'zhipu-provider-id',
+      currentCliModel: 'glm-5.3-flash[1M]',
+      currentModel: 'glm-5.3-flash',
+      claudeConfigDir: '/mock-home/.claude',
+      routeEnvironment: {
+        ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'glm-5.3-flash',
+        ANTHROPIC_DEFAULT_OPUS_MODEL_NAME: 'glm-5.3',
+      },
+      routeFingerprint: 'route:zhipu',
+      selectionSource: 'liveConfig',
+      proxyStatusStale: false,
+      error: null,
+      checkedAt: 1,
+      baseUrl: CC_SWITCH_BASE_URL,
+    };
+
+    expect(ccSwitchGlobalSnapshot(snapshot, 'opus')).toMatchObject({
+      currentCliModel: 'opus',
+      currentModel: 'glm-5.3',
+    });
+    expect(ccSwitchSnapshotLabel(snapshot, 'opus')).toBe('glm-5.3 · Zhipu GLM');
+    expect(ccSwitchSnapshotModelName(snapshot, 'opus')).toBe('glm-5.3');
+    // Without the override every helper reports the global Sonnet selection.
+    expect(ccSwitchSnapshotModelName(snapshot)).toBe('glm-5.3-flash');
   });
 });
 

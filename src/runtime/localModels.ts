@@ -21,12 +21,21 @@ export interface ClaudeResolvedLocalModel extends LocalModelOption {
 }
 
 export interface ClaudeCcSwitchSessionConfig {
-  /** Exact top-level model selected by CC Switch's global Claude config. */
+  /** Exact model passed to Claude Code, which may be a family alias such as `opus`. */
   cliModel: string;
   /** Upstream family route derived from that exact CLI model, when knowable. */
   routedModel: string | null;
   /** Non-secret fingerprint of the complete global snapshot and effective model map. */
   routeFingerprint: string;
+}
+
+export interface CcSwitchModelOption {
+  /** Family alias passed to `claude --model`; Claude Code resolves it through the provider's env mapping. */
+  alias: 'sonnet' | 'opus' | 'haiku' | 'fable';
+  /** Human-readable role name shown next to the alias. */
+  familyLabel: string;
+  /** Upstream model this role maps to for the active CC Switch provider. */
+  displayName: string;
 }
 
 /** Model aliases the Claude Code CLI resolves on its own. */
@@ -220,14 +229,21 @@ export function resolveClaudeModelRouteEnvironment(
  * Resolve one CC Switch session exclusively from the already-validated global
  * snapshot. Vault-level Claude settings intentionally never participate in
  * this mode; they remain available only through the local CLI source.
+ *
+ * A non-empty modelOverride (a family alias such as `opus`, or any exact CLI
+ * model id) takes precedence over the global selection; the fingerprint then
+ * captures the override through its `cliModel` field, so changing the
+ * selection invalidates any resumable session automatically.
  */
 export function resolveClaudeCcSwitchSessionConfig(
   routeSnapshot: ClaudeModelRouteEnvironment = {},
   globalCliModelSnapshot?: string | null,
   globalSnapshotFingerprint?: string | null,
+  modelOverride?: string | null,
 ): ClaudeCcSwitchSessionConfig {
   const routeEnvironment = routeSnapshot;
-  const cliModel = routeEnvironment.ANTHROPIC_MODEL?.trim()
+  const cliModel = modelOverride?.trim()
+    || routeEnvironment.ANTHROPIC_MODEL?.trim()
     || globalCliModelSnapshot?.trim()
     || '';
   return {
@@ -282,6 +298,41 @@ export function resolveClaudeRoutedModelLabel(
       || null;
   }
   return null;
+}
+
+const CC_SWITCH_MODEL_ROLES: ReadonlyArray<{
+  alias: CcSwitchModelOption['alias'];
+  familyLabel: string;
+  modelKey: ClaudeRouteEnvKey;
+  nameKey: ClaudeRouteEnvKey;
+}> = [
+  { alias: 'sonnet', familyLabel: 'Sonnet', modelKey: 'ANTHROPIC_DEFAULT_SONNET_MODEL', nameKey: 'ANTHROPIC_DEFAULT_SONNET_MODEL_NAME' },
+  { alias: 'opus', familyLabel: 'Opus', modelKey: 'ANTHROPIC_DEFAULT_OPUS_MODEL', nameKey: 'ANTHROPIC_DEFAULT_OPUS_MODEL_NAME' },
+  { alias: 'haiku', familyLabel: 'Haiku', modelKey: 'ANTHROPIC_DEFAULT_HAIKU_MODEL', nameKey: 'ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME' },
+  { alias: 'fable', familyLabel: 'Fable', modelKey: 'ANTHROPIC_DEFAULT_FABLE_MODEL', nameKey: 'ANTHROPIC_DEFAULT_FABLE_MODEL_NAME' },
+];
+
+/**
+ * List the Claude roles the active CC Switch provider actually maps, in the
+ * order the chat model picker shows them. A role is available when the
+ * provider configures either its model name or its model alias env key.
+ */
+export function listCcSwitchModelOptions(
+  routeEnvironment: ClaudeModelRouteEnvironment,
+): CcSwitchModelOption[] {
+  const options: CcSwitchModelOption[] = [];
+  for (const role of CC_SWITCH_MODEL_ROLES) {
+    const displayName = routeEnvironment[role.nameKey]?.trim()
+      || routeEnvironment[role.modelKey]?.trim()
+      || '';
+    if (!displayName) continue;
+    options.push({
+      alias: role.alias,
+      familyLabel: role.familyLabel,
+      displayName,
+    });
+  }
+  return options;
 }
 
 function gatewayLabel(baseUrl: string): string {

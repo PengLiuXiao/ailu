@@ -374,13 +374,41 @@ export function readCcSwitchCurrentSelection(
   };
 }
 
-export function ccSwitchSnapshotLabel(snapshot: CcSwitchSnapshot): string {
-  const providerMarker = snapshot.currentProvider?.trim()
-    || snapshot.currentProviderId?.trim().slice(0, 8)
+/**
+ * Re-resolve the snapshot against a model override (family alias or exact
+ * model id) so display helpers and the switch notice can follow a selection
+ * that is not CC Switch's global default.
+ */
+function ccSwitchEffectiveSnapshot(
+  snapshot: CcSwitchSnapshot,
+  modelOverride?: string | null,
+): CcSwitchSnapshot {
+  const override = modelOverride?.trim();
+  if (!override || snapshot.state !== 'ready') return snapshot;
+  const session = resolveClaudeCcSwitchSessionConfig(
+    snapshot.routeEnvironment,
+    snapshot.currentCliModel,
+    snapshot.routeFingerprint,
+    override,
+  );
+  return {
+    ...snapshot,
+    currentCliModel: session.cliModel || null,
+    currentModel: session.routedModel,
+  };
+}
+
+export function ccSwitchSnapshotLabel(
+  snapshot: CcSwitchSnapshot,
+  modelOverride?: string | null,
+): string {
+  const effective = ccSwitchEffectiveSnapshot(snapshot, modelOverride);
+  const providerMarker = effective.currentProvider?.trim()
+    || effective.currentProviderId?.trim().slice(0, 8)
     || '';
-  const currentModel = snapshot.currentModel?.trim() ?? '';
+  const currentModel = effective.currentModel?.trim() ?? '';
   if (!currentModel) {
-    const configuredModel = snapshot.currentCliModel?.trim() ?? '';
+    const configuredModel = effective.currentCliModel?.trim() ?? '';
     const modelLabel = configuredModel
       ? `${configuredModel}（按 CC Switch 配置）`
       : '模型未配置';
@@ -396,10 +424,13 @@ export function ccSwitchSnapshotLabel(snapshot: CcSwitchSnapshot): string {
  * with the model too, but carries provider markers and provenance qualifiers
  * that a narrow button cannot show.
  */
-export function ccSwitchSnapshotModelName(snapshot: CcSwitchSnapshot): string {
-  const globalSnapshot = ccSwitchGlobalSnapshot(snapshot);
-  return globalSnapshot.currentModel?.trim()
-    || globalSnapshot.currentCliModel?.trim()
+export function ccSwitchSnapshotModelName(
+  snapshot: CcSwitchSnapshot,
+  modelOverride?: string | null,
+): string {
+  const effective = ccSwitchEffectiveSnapshot(snapshot, modelOverride);
+  return effective.currentModel?.trim()
+    || effective.currentCliModel?.trim()
     || '模型未配置';
 }
 
@@ -411,13 +442,14 @@ export function ccSwitchSnapshotModelName(snapshot: CcSwitchSnapshot): string {
 export function ccSwitchProviderChangeNotice(
   previousProviderId: string | null | undefined,
   snapshot: CcSwitchSnapshot,
+  modelOverride?: string | null,
 ): string | null {
   if (snapshot.state !== 'ready') return null;
   const currentProviderId = snapshot.currentProviderId?.trim() ?? '';
   const previous = previousProviderId?.trim() ?? '';
   if (!currentProviderId || !previous || currentProviderId === previous) return null;
   const providerName = snapshot.currentProvider?.trim() || currentProviderId.slice(0, 8);
-  return `CC Switch 已切换供应商：${providerName}，当前模型 ${ccSwitchSnapshotModelName(snapshot)}`;
+  return `CC Switch 已切换供应商：${providerName}，当前模型 ${ccSwitchSnapshotModelName(snapshot, modelOverride)}`;
 }
 
 export function ccSwitchRouteSummary(snapshot: CcSwitchSnapshot): string {
@@ -430,12 +462,16 @@ export function ccSwitchRouteSummary(snapshot: CcSwitchSnapshot): string {
   return [...new Set(models)].join(' / ');
 }
 
-export function ccSwitchGlobalSnapshot(snapshot: CcSwitchSnapshot): CcSwitchSnapshot {
+export function ccSwitchGlobalSnapshot(
+  snapshot: CcSwitchSnapshot,
+  modelOverride?: string | null,
+): CcSwitchSnapshot {
   if (snapshot.state !== 'ready') return snapshot;
   const session = resolveClaudeCcSwitchSessionConfig(
     snapshot.routeEnvironment,
     snapshot.currentCliModel,
     snapshot.routeFingerprint,
+    modelOverride,
   );
   return {
     ...snapshot,

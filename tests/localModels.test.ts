@@ -26,6 +26,7 @@ vi.mock('os', () => ({
 
 import {
   getClaudeDetectedLocalModel,
+  listCcSwitchModelOptions,
   listClaudeLocalModels,
   resolveClaudeCcSwitchSessionConfig,
   resolveClaudeLocalModel,
@@ -295,5 +296,88 @@ describe('Claude local model detection', () => {
     expect(fingerprint).not.toContain('anthropic');
     expect(fingerprint).not.toContain('secret');
     expect(fingerprint).not.toContain('private');
+  });
+});
+
+describe('CC Switch model override resolution', () => {
+  const routeEnvironment = {
+    ANTHROPIC_MODEL: 'glm-5.3-flash[1M]',
+    ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5.3-flash[1M]',
+    ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'glm-5.3-flash',
+    ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-5.3[1M]',
+    ANTHROPIC_DEFAULT_OPUS_MODEL_NAME: 'glm-5.3',
+  };
+
+  test('an override becomes the CLI model and resolves its family route', () => {
+    const session = resolveClaudeCcSwitchSessionConfig(
+      routeEnvironment,
+      'glm-5.3-flash[1M]',
+      'route:global',
+      'opus',
+    );
+
+    expect(session.cliModel).toBe('opus');
+    expect(session.routedModel).toBe('glm-5.3');
+  });
+
+  test('an empty override keeps the global selection untouched', () => {
+    const global = resolveClaudeCcSwitchSessionConfig(routeEnvironment, null, 'route:global');
+    const blank = resolveClaudeCcSwitchSessionConfig(routeEnvironment, null, 'route:global', '');
+
+    expect(global.cliModel).toBe('glm-5.3-flash[1M]');
+    expect(blank.cliModel).toBe(global.cliModel);
+    expect(blank.routeFingerprint).toBe(global.routeFingerprint);
+  });
+
+  test('an override changes the session fingerprint so stale sessions never resume', () => {
+    const global = resolveClaudeCcSwitchSessionConfig(routeEnvironment, null, 'route:global');
+    const opus = resolveClaudeCcSwitchSessionConfig(routeEnvironment, null, 'route:global', 'opus');
+    const haiku = resolveClaudeCcSwitchSessionConfig(routeEnvironment, null, 'route:global', 'haiku');
+
+    expect(opus.routeFingerprint).not.toBe(global.routeFingerprint);
+    expect(opus.routeFingerprint).not.toBe(haiku.routeFingerprint);
+    expect(opus.routeFingerprint).toContain('"opus"');
+  });
+
+  test('an override without a routed family leaves routedModel null', () => {
+    const session = resolveClaudeCcSwitchSessionConfig(
+      { ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'glm-5.3-flash' },
+      null,
+      'route:global',
+      'custom-model-7',
+    );
+
+    expect(session.cliModel).toBe('custom-model-7');
+    expect(session.routedModel).toBeNull();
+  });
+});
+
+describe('listCcSwitchModelOptions', () => {
+  test('lists configured roles in Sonnet/Opus/Haiku/Fable order', () => {
+    const options = listCcSwitchModelOptions({
+      ANTHROPIC_DEFAULT_FABLE_MODEL_NAME: 'glm-5.3',
+      ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'glm-5.3-flash',
+      ANTHROPIC_DEFAULT_OPUS_MODEL_NAME: 'glm-5.3',
+    });
+
+    expect(options).toEqual([
+      { alias: 'sonnet', familyLabel: 'Sonnet', displayName: 'glm-5.3-flash' },
+      { alias: 'opus', familyLabel: 'Opus', displayName: 'glm-5.3' },
+      { alias: 'fable', familyLabel: 'Fable', displayName: 'glm-5.3' },
+    ]);
+  });
+
+  test('falls back to the model alias key when no display-name key is present', () => {
+    const options = listCcSwitchModelOptions({
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'claude-haiku-4-5',
+    });
+
+    expect(options).toEqual([
+      { alias: 'haiku', familyLabel: 'Haiku', displayName: 'claude-haiku-4-5' },
+    ]);
+  });
+
+  test('returns nothing when the provider maps no roles', () => {
+    expect(listCcSwitchModelOptions({})).toEqual([]);
   });
 });
