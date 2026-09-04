@@ -352,7 +352,7 @@ function readArtifacts(repoRoot) {
   if (!isRecord(attested)
     || attested.schema_version !== 1
     || attested.product !== CANONICAL_PLUGIN_ID
-    || attested.version !== '0.3.1'
+    || attested.version !== '0.4.0'
     || !Array.isArray(attested.inputs)) {
     throw new Error('Captured build attestation has an unsupported identity or schema.');
   }
@@ -380,8 +380,8 @@ function readArtifacts(repoRoot) {
     throw new Error('Captured build attestation does not match the active Node/esbuild/TypeScript toolchain.');
   }
   const manifest = JSON.parse(result.find(item => item.filename === 'manifest.json').bytes.toString('utf8'));
-  if (manifest.id !== CANONICAL_PLUGIN_ID || manifest.version !== '0.3.1') {
-    throw new Error('Release manifest is not the canonical Ailu 0.3.1 identity.');
+  if (manifest.id !== CANONICAL_PLUGIN_ID || manifest.version !== '0.4.0') {
+    throw new Error('Release manifest is not the canonical Ailu 0.4.0 identity.');
   }
   const newestSourceMtime = newestTreeMtime(path.join(repoRoot, 'src'));
   const bundleMtime = fs.statSync(path.join(repoRoot, 'main.js')).mtimeMs;
