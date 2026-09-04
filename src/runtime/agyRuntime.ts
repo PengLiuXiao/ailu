@@ -171,15 +171,18 @@ export class AgyRuntime extends EventEmitter {
       }
     }
     const detail = stderr || (result.error ? String(result.error) : '');
+    const needsSignIn = /sign[ -]?in|login|auth/i.test(detail);
     this.setStatus({
       state: 'error',
       binaryPath: connection.binaryPath,
       binarySource: connection.binarySource,
       version: connection.version,
       models: [],
-      error: detail
-        ? `无法读取 Antigravity CLI 模型列表（可能未登录）：${detail.slice(0, 300)}`
-        : '无法读取 Antigravity CLI 模型列表（可能未登录）。',
+      error: needsSignIn
+        ? 'Antigravity CLI 未登录或登录已过期。请在终端运行 agy 完成登录后重试；对话仍会跟随本机默认模型。'
+        : detail
+          ? `无法读取 Antigravity CLI 模型列表：${detail.slice(0, 300)}`
+          : '无法读取 Antigravity CLI 模型列表。',
     });
     return this.getStatus();
   }

@@ -805,6 +805,19 @@ export class AiluSettingTab extends PluginSettingTab {
     }
 
     if (agentId === 'antigravity') {
+      new Setting(section)
+        .setName('模型 ID')
+        .setDesc('可选；留空时跟随本机默认模型。模型列表读取失败时可直接填写，例如 gemini-3.8-flash-high。')
+        .addText(text => {
+          text
+            .setPlaceholder('跟随本机')
+            .setValue(settings.localModelByAgent.antigravity)
+            .onChange(async value => {
+              settings.localModelByAgent.antigravity = value.trim();
+              await this.deps.saveSettings();
+              this.deps.refreshViews();
+            });
+        });
       this.renderAgyStatus(section, status);
       return;
     }

@@ -2011,7 +2011,8 @@ export class AiluChatView extends ItemView {
     if (status.state === 'idle') {
       void this.deps.runtimeManager.refreshAgyStatus();
     }
-    const searchWrap = dropdown.createDiv({ cls: 'ailu-model-group' });
+    const searchWrap = dropdown.createDiv();
+    searchWrap.createDiv({ cls: 'ailu-model-group', text: '搜索模型' });
     const searchInput = searchWrap.createEl('input', {
       cls: 'ailu-model-search-input',
       attr: { type: 'text', placeholder: '搜索模型', 'aria-label': '搜索 Antigravity 模型' },
@@ -2040,7 +2041,7 @@ export class AiluChatView extends ItemView {
         const emptyIcon = empty.createSpan({ cls: 'ailu-option-icon' });
         setIcon(emptyIcon, status.state === 'error' ? 'circle-alert' : 'loader');
         empty.createSpan({
-          text: status.state === 'error' ? '模型列表读取失败' : '正在读取模型列表…',
+          text: status.state === 'error' ? '模型列表读取失败，可在下方手动输入模型 ID' : '正在读取模型列表…',
         });
         if (status.state === 'error') {
           const retry = results.createDiv({ cls: 'ailu-model-option' });
@@ -2082,6 +2083,31 @@ export class AiluChatView extends ItemView {
       renderOptions(searchInput.value.trim().toLowerCase());
     });
     renderOptions('');
+
+    // Manual entry keeps model selection available even when `agy models`
+    // cannot read the catalog (for example while the CLI is signed out).
+    const manualGroup = dropdown.createDiv();
+    manualGroup.createDiv({ cls: 'ailu-model-group', text: '手动输入模型 ID' });
+    const manualInput = manualGroup.createEl('input', {
+      cls: 'ailu-model-search-input',
+      attr: {
+        type: 'text',
+        placeholder: '例如 gemini-3.8-flash-high',
+        'aria-label': '手动输入 Antigravity 模型 ID',
+      },
+    });
+    manualInput.value = selectedModel;
+    const applyManual = (): void => {
+      const value = manualInput.value.trim();
+      if (!value || value === selectedModel) return;
+      void this.selectAgyModel(value);
+    };
+    manualInput.addEventListener('keydown', event => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      event.stopPropagation();
+      applyManual();
+    });
     window.setTimeout(() => searchInput.focus(), 0);
   }
 

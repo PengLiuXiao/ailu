@@ -168,6 +168,24 @@ describe('AgyRuntime', () => {
     vi.restoreAllMocks();
   });
 
+  test('maps a sign-in failure to an actionable login message', async () => {
+    const signedOut = path.join(tempRoot, 'agy-signed-out');
+    fs.writeFileSync(signedOut, [
+      '#!/usr/bin/env node',
+      "if (process.argv.includes('models')) {",
+      "  console.error('Fetching available models...');",
+      "  console.error('Error: Please sign in to view available models.');",
+      "  process.exit(1);",
+      '}',
+      'process.exit(0);',
+    ].join('\n'));
+    fs.chmodSync(signedOut, 0o755);
+    const runtime = new AgyRuntime();
+    const status = await runtime.refreshStatus(makeConnection(signedOut));
+    expect(status.state).toBe('error');
+    expect(status.error).toContain('未登录');
+  });
+
   test('refreshes the model catalog from `agy models`', async () => {
     writeFakeAgy(binaryPath, { behavior: 'stream' });
     const runtime = new AgyRuntime();
