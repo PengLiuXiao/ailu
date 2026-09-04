@@ -28,6 +28,11 @@ describe('canonical agent settings', () => {
         codex: 'gpt-5.6',
         retiredAgent: 'retired-model',
       },
+      ccSwitchModelByAgent: {
+        claude: 'opus',
+        codex: '',
+        retiredAgent: 'haiku',
+      },
       reasoningEffortByAgent: {
         claude: 'high',
         codex: 'max',
@@ -49,6 +54,7 @@ describe('canonical agent settings', () => {
       normalized.configuredPaths,
       normalized.providerProfileByAgent,
       normalized.localModelByAgent,
+      normalized.ccSwitchModelByAgent,
       normalized.reasoningEffortByAgent,
       normalized.fullAccessByAgent,
     ]) {
@@ -62,6 +68,7 @@ describe('canonical agent settings', () => {
       },
       providerProfileByAgent: { claude: 'claude-profile', codex: 'codex-profile' },
       localModelByAgent: { claude: 'sonnet', codex: 'gpt-5.6' },
+      ccSwitchModelByAgent: { claude: 'opus', codex: '' },
       reasoningEffortByAgent: { claude: 'high', codex: 'max' },
       fullAccessByAgent: { claude: false, codex: true },
       creativeSkillNames: ['tutorial-writing', 'content-helper'],
@@ -75,6 +82,7 @@ describe('canonical agent settings', () => {
       configuredPaths: { claude: '', codex: '', retiredAgent: '' },
       providerProfileByAgent: { claude: '', codex: '', retiredAgent: '' },
       localModelByAgent: { claude: '', codex: '', retiredAgent: '' },
+      ccSwitchModelByAgent: { claude: 'opus', codex: '', retiredAgent: 'haiku' },
       reasoningEffortByAgent: { claude: '', codex: '', retiredAgent: '' },
       fullAccessByAgent: { claude: true, codex: true, retiredAgent: false },
       creativeSkillNames: ['local-selected-skill'],
@@ -99,6 +107,7 @@ describe('canonical agent settings', () => {
       'configuredPaths',
       'providerProfileByAgent',
       'localModelByAgent',
+      'ccSwitchModelByAgent',
       'reasoningEffortByAgent',
       'fullAccessByAgent',
     ] as const) {
@@ -120,6 +129,28 @@ describe('canonical agent settings', () => {
       codex: true,
       pi: true,
       antigravity: true,
+    });
+  });
+
+  test('falls back to empty CC Switch models for illegal or missing values', () => {
+    expect(normalizeAgentSettings(null).ccSwitchModelByAgent).toEqual({
+      claude: '',
+      codex: '',
+      pi: '',
+      antigravity: '',
+    });
+    expect(normalizeAgentSettings({
+      ccSwitchModelByAgent: {
+        claude: 42,
+        codex: true,
+        pi: null,
+        antigravity: 'opus',
+      } as unknown as AiluSettings['ccSwitchModelByAgent'],
+    }).ccSwitchModelByAgent).toEqual({
+      claude: '',
+      codex: '',
+      pi: '',
+      antigravity: 'opus',
     });
   });
 });

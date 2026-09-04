@@ -12,6 +12,7 @@ export type CanonicalAgentSettings = Pick<
   | 'configuredPaths'
   | 'providerProfileByAgent'
   | 'localModelByAgent'
+  | 'ccSwitchModelByAgent'
   | 'reasoningEffortByAgent'
   | 'fullAccessByAgent'
   | 'creativeSkillNames'
@@ -81,6 +82,20 @@ export function normalizeAgentSettings(
         ? value.localModelByAgent.antigravity
         : DEFAULT_SETTINGS.localModelByAgent.antigravity,
     },
+    ccSwitchModelByAgent: {
+      claude: typeof value?.ccSwitchModelByAgent?.claude === 'string'
+        ? value.ccSwitchModelByAgent.claude
+        : DEFAULT_SETTINGS.ccSwitchModelByAgent.claude,
+      codex: typeof value?.ccSwitchModelByAgent?.codex === 'string'
+        ? value.ccSwitchModelByAgent.codex
+        : DEFAULT_SETTINGS.ccSwitchModelByAgent.codex,
+      pi: typeof value?.ccSwitchModelByAgent?.pi === 'string'
+        ? value.ccSwitchModelByAgent.pi
+        : DEFAULT_SETTINGS.ccSwitchModelByAgent.pi,
+      antigravity: typeof value?.ccSwitchModelByAgent?.antigravity === 'string'
+        ? value.ccSwitchModelByAgent.antigravity
+        : DEFAULT_SETTINGS.ccSwitchModelByAgent.antigravity,
+    },
     reasoningEffortByAgent: {
       claude: typeof value?.reasoningEffortByAgent?.claude === 'string'
         ? value.reasoningEffortByAgent.claude
@@ -114,6 +129,7 @@ export function canonicalizeStoredAgentSettings(
     configuredPaths: normalized.configuredPaths,
     providerProfileByAgent: normalized.providerProfileByAgent,
     localModelByAgent: normalized.localModelByAgent,
+    ccSwitchModelByAgent: normalized.ccSwitchModelByAgent,
     reasoningEffortByAgent: normalized.reasoningEffortByAgent,
     fullAccessByAgent: normalized.fullAccessByAgent,
     creativeSkillNames: normalized.creativeSkillNames,

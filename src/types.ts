@@ -409,6 +409,11 @@ export type ConfigSourcesByAgent = Record<AgentId, RuntimeConfigSource>;
 export type ConfiguredPathsByAgent = Record<AgentId, string>;
 export type ProfileSelectionByAgent = Record<AgentId, string>;
 export type LocalModelByAgent = Record<AgentId, string>;
+/**
+ * Claude-role alias selected per agent while the config source is CC Switch.
+ * Empty = follow CC Switch's global selection.
+ */
+export type CcSwitchModelByAgent = Record<AgentId, string>;
 export type ReasoningEffortByAgent = Record<AgentId, string>;
 export type FullAccessByAgent = Record<AgentId, boolean>;
 
@@ -420,6 +425,13 @@ export interface AiluSettings {
   providerProfileByAgent: ProfileSelectionByAgent;
   /** Model override per agent when running through the local CLI. Empty = CLI default. */
   localModelByAgent: LocalModelByAgent;
+  /**
+   * Claude-role override used while the config source is CC Switch. Empty =
+   * follow CC Switch's global selection. Values are family aliases (sonnet,
+   * opus, haiku, fable); the provider's own mapping resolves the actual
+   * upstream model, so the choice survives provider switches.
+   */
+  ccSwitchModelByAgent: CcSwitchModelByAgent;
   /** Reasoning effort per agent. Empty = follow the local runtime or provider. */
   reasoningEffortByAgent: ReasoningEffortByAgent;
   /** Full host access for ordinary interactive turns. Plan and text-only turns stay restricted. */
@@ -481,6 +493,13 @@ export const DEFAULT_LOCAL_MODELS: LocalModelByAgent = {
   antigravity: '',
 };
 
+export const DEFAULT_CC_SWITCH_MODELS: CcSwitchModelByAgent = {
+  claude: '',
+  codex: '',
+  pi: '',
+  antigravity: '',
+};
+
 export const DEFAULT_REASONING_EFFORTS: ReasoningEffortByAgent = {
   claude: '',
   codex: '',
@@ -515,6 +534,7 @@ export const DEFAULT_SETTINGS: AiluSettings = {
   configuredPaths: DEFAULT_CONFIGURED_PATHS,
   providerProfileByAgent: DEFAULT_PROFILE_SELECTION,
   localModelByAgent: DEFAULT_LOCAL_MODELS,
+  ccSwitchModelByAgent: DEFAULT_CC_SWITCH_MODELS,
   reasoningEffortByAgent: DEFAULT_REASONING_EFFORTS,
   fullAccessByAgent: DEFAULT_FULL_ACCESS,
   creativeSkillNames: [],
