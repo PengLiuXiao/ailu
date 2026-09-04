@@ -72,6 +72,7 @@ import {
 } from '../runtime/piModels';
 import {
   getClaudeDetectedLocalModel,
+  listCcSwitchModelOptions,
   listLocalModels,
   resolveClaudeCcSwitchSessionConfig,
   resolveClaudeLocalModel,
@@ -424,7 +425,17 @@ export class AiluChatView extends ItemView {
   }
 
   private ccSwitchLabel(snapshot: CcSwitchSnapshot): string {
-    return ccSwitchSnapshotLabel(ccSwitchGlobalSnapshot(snapshot));
+    return ccSwitchSnapshotLabel(ccSwitchGlobalSnapshot(snapshot, this.ccSwitchModelOverride()));
+  }
+
+  /** Persisted CC Switch role alias (sonnet/opus/haiku/fable) or '' for follow-global. */
+  private ccSwitchSelectedOverride(): string {
+    const settings = this.deps.getSettings();
+    return settings.ccSwitchModelByAgent?.claude?.trim() ?? '';
+  }
+
+  private ccSwitchModelOverride(): string | null {
+    return this.ccSwitchSelectedOverride() || null;
   }
 
   private closeDropdownsOutside(event: MouseEvent): void {
@@ -1822,10 +1833,19 @@ export class AiluChatView extends ItemView {
   ): ClaudeReasoningCapability {
     const configSource = settings.configSources.claude;
     if (configSource === 'ccSwitchCurrent') {
+      const override = settings.ccSwitchModelByAgent?.claude?.trim() || null;
+      const session = ccSwitchSnapshot?.state === 'ready'
+        ? resolveClaudeCcSwitchSessionConfig(
+          ccSwitchSnapshot.routeEnvironment,
+          ccSwitchSnapshot.currentCliModel,
+          ccSwitchSnapshot.routeFingerprint,
+          override,
+        )
+        : null;
       return resolveClaudeReasoningCapability({
         configSource,
-        cliModel: ccSwitchSnapshot.currentCliModel,
-        routedModel: ccSwitchSnapshot.currentModel,
+        cliModel: session?.cliModel || ccSwitchSnapshot?.currentCliModel,
+        routedModel: session?.routedModel ?? ccSwitchSnapshot?.currentModel ?? null,
       });
     }
     if (configSource === 'providerProfile') {
@@ -2211,23 +2231,74 @@ export class AiluChatView extends ItemView {
 
     if (source === 'ccSwitchCurrent') {
       const snapshot = this.deps.runtimeManager.getCcSwitchSnapshot();
-      dropdown.createDiv({ cls: 'ailu-model-group', text: 'CC Switch · 当前路由' });
-      const current = dropdown.createDiv({ cls: 'ailu-model-option selected disabled' });
-      const currentIcon = current.createSpan({ cls: 'ailu-option-icon' });
-      setIcon(currentIcon, snapshot.state === 'ready' ? 'route' : 'circle-alert');
-      current.createSpan({
-        text: snapshot.state === 'ready'
-          ? this.ccSwitchLabel(snapshot)
-          : 'CC Switch 未连接',
-      });
-      current.createSpan({
-        cls: 'ailu-option-note',
-        text: snapshot.state === 'ready'
-          ? snapshot.proxyStatusStale
+      const selectedOverride = settings.ccSwitchModelByAgent?.claude?.trim() ?? '';
+      if (snapshot.state !== 'ready') {
+        const error = dropdown.createDiv({ cls: 'ailu-model-option disabled' });
+        const errorIcon = error.createSpan({ cls: 'ailu-option-icon' });
+        setIcon(errorIcon, 'circle-alert');
+        error.createSpan({
+          text: snapshot.state === 'error'
+            ? 'CC Switch 未连接'
+            : 'CC Switch 状态读取中…',
+        });
+        error.createSpan({
+          cls: 'ailu-option-note',
+          text: userFacingErrorText(snapshot.error, '点击下方刷新'),
+        });
+      } else {
+        const options = listCcSwitchModelOptions(snapshot.routeEnvironment);
+        dropdown.createDiv({ cls: 'ailu-model-group', text: '选择模型' });
+        const follow = dropdown.createDiv({ cls: 'ailu-model-option' });
+        follow.toggleClass('selected', !selectedOverride);
+        const followIcon = follow.createSpan({ cls: 'ailu-option-icon' });
+        setIcon(followIcon, 'route');
+        follow.createSpan({ text: '跟随 CC Switch 全局' });
+        follow.createSpan({
+          cls: 'ailu-option-note',
+          text: `当前 ${ccSwitchSnapshotModelName(snapshot)}`,
+        });
+        if (!selectedOverride) {
+          const checkIcon = follow.createSpan({ cls: 'ailu-option-check' });
+          setIcon(checkIcon, 'check');
+        }
+        follow.onclick = event => {
+          event.stopPropagation();
+          void this.selectCcSwitchModel('');
+        };
+        for (const model of options) {
+          const option = dropdown.createDiv({ cls: 'ailu-model-option' });
+          option.toggleClass('selected', selectedOverride === model.alias);
+          const roleIcon = option.createSpan({ cls: 'ailu-option-icon' });
+          setIcon(roleIcon, 'cpu');
+          option.createSpan({ text: model.familyLabel });
+          option.createSpan({ cls: 'ailu-option-note', text: model.displayName });
+          if (selectedOverride === model.alias) {
+            const checkIcon = option.createSpan({ cls: 'ailu-option-check' });
+            setIcon(checkIcon, 'check');
+          }
+          option.onclick = event => {
+            event.stopPropagation();
+            void this.selectCcSwitchModel(model.alias);
+          };
+        }
+        if (options.length === 0) {
+          const empty = dropdown.createDiv({ cls: 'ailu-model-option disabled' });
+          empty.createSpan({
+            text: '当前供应商没有可选的模型角色',
+            cls: 'ailu-option-note',
+          });
+        }
+        const status = dropdown.createDiv({ cls: 'ailu-model-option disabled' });
+        const statusIcon = status.createSpan({ cls: 'ailu-option-icon' });
+        setIcon(statusIcon, 'info');
+        status.createSpan({ text: this.ccSwitchLabel(snapshot) });
+        status.createSpan({
+          cls: 'ailu-option-note',
+          text: snapshot.proxyStatusStale
             ? '已按 CC Switch 当前配置读取 · 状态端点仍是上一请求'
-            : '本地代理在线 · 未发起上游测试'
-          : userFacingErrorText(snapshot.error, '点击下方刷新'),
-      });
+            : '本地代理在线 · 未发起上游测试',
+        });
+      }
       const refresh = dropdown.createDiv({ cls: 'ailu-model-option' });
       const refreshIcon = refresh.createSpan({ cls: 'ailu-option-icon' });
       setIcon(refreshIcon, 'refresh-cw');
@@ -2256,7 +2327,9 @@ export class AiluChatView extends ItemView {
       };
       dropdown.createDiv({
         cls: 'ailu-model-group',
-        text: '只跟随 CC Switch 全局配置，不受当前 Vault 的 Claude 项目配置影响。',
+        text: selectedOverride
+          ? `已固定使用 ${selectedOverride} 角色；切换供应商后仍按新供应商映射。`
+          : '跟随 CC Switch 全局配置，不受当前 Vault 的 Claude 项目配置影响。',
       });
       return;
     }
@@ -3639,6 +3712,20 @@ export class AiluChatView extends ItemView {
     }
   }
 
+  /** Persist a CC Switch role alias ('' = follow the global selection). */
+  private async selectCcSwitchModel(alias: string): Promise<void> {
+    const settings = this.deps.getSettings();
+    settings.ccSwitchModelByAgent.claude = alias.trim();
+    settings.reasoningEffortByAgent.claude = reconcileClaudeReasoningEffort(
+      this.getClaudeReasoningCapability(settings),
+      settings.reasoningEffortByAgent.claude,
+    );
+    this.closeAllDropdowns();
+    this.refreshAgentControls();
+    this.refreshStatus();
+    await this.queueSettingsSave();
+  }
+
   private async selectCodexModel(modelId: string): Promise<void> {
     const settings = this.deps.getSettings();
     const status = this.deps.runtimeManager.getCodexStatus();
@@ -3712,7 +3799,9 @@ export class AiluChatView extends ItemView {
     const settings = this.deps.getSettings();
     if (settings.configSources[this.agentId] === 'ccSwitchCurrent') {
       const snapshot = this.deps.runtimeManager.getCcSwitchSnapshot();
-      if (snapshot.state === 'ready') return ccSwitchSnapshotModelName(snapshot);
+      if (snapshot.state === 'ready') {
+        return ccSwitchSnapshotModelName(snapshot, this.ccSwitchModelOverride());
+      }
       return 'CC Switch 未连接';
     }
     if (settings.configSources[this.agentId] === 'localCli') {

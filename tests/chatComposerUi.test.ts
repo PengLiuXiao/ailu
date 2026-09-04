@@ -44,6 +44,14 @@ describe('chat composer UI contract', () => {
     expect(chatViewSource).toContain('this.renderEffortSelector(this.agentControlsEl)');
   });
 
+  it('lets the CC Switch model dropdown choose a mapped role or follow the global selection', () => {
+    expect(chatViewSource).toContain('跟随 CC Switch 全局');
+    expect(chatViewSource).toContain('listCcSwitchModelOptions(snapshot.routeEnvironment)');
+    expect(chatViewSource).toContain('void this.selectCcSwitchModel(');
+    expect(chatViewSource).toContain('settings.ccSwitchModelByAgent.claude = alias.trim()');
+    expect(chatViewSource).not.toContain("text: '只跟随 CC Switch 全局配置，不受当前 Vault 的 Claude 项目配置影响。'");
+  });
+
   it('deduplicates persistence backpressure notices and capability-gates Agent Memory', () => {
     expect(chatViewSource).toContain('error instanceof ChatPersistenceBackpressureError');
     expect(chatViewSource).toContain('this.persistenceBackpressureNotice?.hide()');
