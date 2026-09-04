@@ -6,6 +6,7 @@ import {
   CC_SWITCH_BASE_URL,
   CcSwitchClient,
   ccSwitchGlobalSnapshot,
+  ccSwitchProviderChangeNotice,
   ccSwitchRouteSummary,
   ccSwitchSnapshotLabel,
   ccSwitchSnapshotModelName,
@@ -211,6 +212,53 @@ describe('ccSwitchSnapshotModelName', () => {
     };
 
     expect(ccSwitchSnapshotModelName(snapshot)).toBe('模型未配置');
+  });
+});
+
+describe('ccSwitchProviderChangeNotice', () => {
+  const baseSnapshot: CcSwitchSnapshot = {
+    state: 'ready',
+    currentProvider: 'ClaudeCN',
+    currentProviderId: 'd804627f-44e7-4a2c-84a1-c58e1e0976eb',
+    currentCliModel: null,
+    currentModel: 'claude-opus-4-7',
+    claudeConfigDir: '/mock-home/.claude',
+    routeEnvironment: {
+      ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'claude-opus-4-7',
+    },
+    routeFingerprint: 'route:claudecn',
+    selectionSource: 'liveConfig',
+    proxyStatusStale: false,
+    error: null,
+    checkedAt: 1,
+    baseUrl: CC_SWITCH_BASE_URL,
+  };
+
+  test('announces a provider switch with the resolved model', () => {
+    expect(ccSwitchProviderChangeNotice(
+      'b9105c46-0107-4d4f-a587-c7b312784637',
+      baseSnapshot,
+    )).toBe('CC Switch 已切换供应商：ClaudeCN，当前模型 claude-opus-4-7');
+  });
+
+  test('stays silent for the first observation, same provider, and non-ready states', () => {
+    expect(ccSwitchProviderChangeNotice(null, baseSnapshot)).toBeNull();
+    expect(ccSwitchProviderChangeNotice(' ', baseSnapshot)).toBeNull();
+    expect(ccSwitchProviderChangeNotice(
+      'd804627f-44e7-4a2c-84a1-c58e1e0976eb',
+      baseSnapshot,
+    )).toBeNull();
+    expect(ccSwitchProviderChangeNotice('b9105c46-0107-4d4f-a587-c7b312784637', {
+      ...baseSnapshot,
+      state: 'error',
+    })).toBeNull();
+  });
+
+  test('falls back to a short provider id when no display name is known', () => {
+    expect(ccSwitchProviderChangeNotice('previous', {
+      ...baseSnapshot,
+      currentProvider: null,
+    })).toBe('CC Switch 已切换供应商：d804627f，当前模型 claude-opus-4-7');
   });
 });
 

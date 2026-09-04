@@ -51,6 +51,7 @@ import {
 import { RuntimeManager } from '../runtime/runtimeManager';
 import {
   ccSwitchGlobalSnapshot,
+  ccSwitchProviderChangeNotice,
   ccSwitchSnapshotLabel,
   ccSwitchSnapshotModelName,
   type CcSwitchSnapshot,
@@ -251,6 +252,7 @@ export class AiluChatView extends ItemView {
   private codexStatusUnsubscribe: (() => void) | null = null;
   private piStatusUnsubscribe: (() => void) | null = null;
   private ccSwitchStatusUnsubscribe: (() => void) | null = null;
+  private lastReadyCcSwitchProviderId: string | null = null;
   private chatWriteStateUnsubscribe: (() => void) | null = null;
   private persistenceBackpressureNotice: Notice | null = null;
   private lastPersistenceBackpressureNotice = '';
@@ -335,6 +337,11 @@ export class AiluChatView extends ItemView {
       this.ccSwitchStatusUnsubscribe = this.deps.runtimeManager.onCcSwitchStatusChange(snapshot => {
         if (this.agentId !== 'claude') return;
         if (this.deps.getSettings().configSources.claude !== 'ccSwitchCurrent') return;
+        const notice = ccSwitchProviderChangeNotice(this.lastReadyCcSwitchProviderId, snapshot);
+        if (snapshot.state === 'ready') {
+          this.lastReadyCcSwitchProviderId = snapshot.currentProviderId ?? null;
+        }
+        if (notice) new Notice(notice);
         this.reconcileCcSwitchReasoningEffort(snapshot);
         this.refreshAgentControls();
         this.refreshStatus();

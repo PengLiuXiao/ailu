@@ -403,6 +403,23 @@ export function ccSwitchSnapshotModelName(snapshot: CcSwitchSnapshot): string {
     || '模型未配置';
 }
 
+/**
+ * Message for a newly observed CC Switch provider. Switches often keep the
+ * configured model name unchanged, so without this the user gets no visible
+ * sign that the follow worked. The first observed provider is silent.
+ */
+export function ccSwitchProviderChangeNotice(
+  previousProviderId: string | null | undefined,
+  snapshot: CcSwitchSnapshot,
+): string | null {
+  if (snapshot.state !== 'ready') return null;
+  const currentProviderId = snapshot.currentProviderId?.trim() ?? '';
+  const previous = previousProviderId?.trim() ?? '';
+  if (!currentProviderId || !previous || currentProviderId === previous) return null;
+  const providerName = snapshot.currentProvider?.trim() || currentProviderId.slice(0, 8);
+  return `CC Switch 已切换供应商：${providerName}，当前模型 ${ccSwitchSnapshotModelName(snapshot)}`;
+}
+
 export function ccSwitchRouteSummary(snapshot: CcSwitchSnapshot): string {
   const models = [
     snapshot.routeEnvironment.ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME,
