@@ -8,14 +8,14 @@ Ailu 是一款桌面端 Obsidian 插件，把本地 Agent 对话（支持 Claude
 
 ## 当前分发状态
 
-Ailu 0.4.0 以公开源码和 [GitHub Release](https://github.com/PengLiuXiao/ailu/releases/tag/0.4.0) 分发。普通用户优先安装 Release 中经过验证的 `main.js`、`manifest.json` 和 `styles.css`；GitHub 自动生成的 “Source code” 压缩包不包含 `main.js` 与 `build-attestation.json`，不能直接当作 Obsidian 插件包使用。
+Ailu 0.3.2 以公开源码和 [GitHub Release](https://github.com/PengLiuXiao/ailu/releases/tag/0.3.2) 分发。普通用户优先安装 Release 中经过验证的 `main.js`、`manifest.json` 和 `styles.css`；GitHub 自动生成的 “Source code” 压缩包不包含 `main.js` 与 `build-attestation.json`，不能直接当作 Obsidian 插件包使用。
 
 当前可写功能的已验证支持范围是 macOS/POSIX。Windows 会 fail-closed 以只读模式启动，不执行 Agent 对话、行内修改、设置写入或部署。
 
 ## 从 Release 安装（推荐）
 
 1. 安装 Obsidian Desktop 1.11.4 或更高版本，并在目标 Vault 的“设置 → 第三方插件”中启用第三方插件。
-2. 从 [Ailu 0.4.0 Release](https://github.com/PengLiuXiao/ailu/releases/tag/0.4.0) 下载 `main.js`、`manifest.json` 和 `styles.css`。可同时下载 `build-attestation.json`、`LICENSE` 与 `THIRD_PARTY_NOTICES.md` 核对构建和许可证。
+2. 从 [Ailu 0.3.2 Release](https://github.com/PengLiuXiao/ailu/releases/tag/0.3.2) 下载 `main.js`、`manifest.json` 和 `styles.css`。可同时下载 `build-attestation.json`、`LICENSE` 与 `THIRD_PARTY_NOTICES.md` 核对构建和许可证。
 3. 在目标 Vault 中创建 `.obsidian/plugins/ailu/`，把三个运行文件放入该目录；不要把 GitHub 的 Source code ZIP 直接放进去。
 4. 完全退出并重开 Obsidian，在“设置 → 第三方插件”中启用 Ailu，然后继续执行下方“首次启动验收”。
 

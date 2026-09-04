@@ -90,7 +90,7 @@ describe('CodexAppServerClient', () => {
       'function handle(message) {',
       "  if (message.method === 'initialize') {",
       "    const info = message.params && message.params.clientInfo;",
-      "    if (!info || info.name !== 'ailu' || info.title !== 'Ailu' || info.version !== '0.4.0') return send({ id: message.id, error: { code: -32001, message: 'wrong client identity' } });",
+      "    if (!info || info.name !== 'ailu' || info.title !== 'Ailu' || info.version !== '0.3.2') return send({ id: message.id, error: { code: -32001, message: 'wrong client identity' } });",
       "    return send({ id: message.id, result: { ok: true } }, true);",
       "  }",
       "  if (message.method === 'initialized') { initialized = true; return; }",

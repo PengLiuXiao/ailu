@@ -142,7 +142,7 @@ export class CodexAppServerClient extends EventEmitter {
       clientInfo: {
         name: PROTOCOL_IDS.codexClientName,
         title: PLUGIN_NAME,
-        version: options.clientVersion ?? '0.4.0',
+        version: options.clientVersion ?? '0.3.2',
       },
       capabilities: {
         experimentalApi: true,
