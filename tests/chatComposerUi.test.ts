@@ -46,9 +46,10 @@ describe('chat composer UI contract', () => {
 
   it('lets the CC Switch model dropdown choose a mapped role or follow the global selection', () => {
     expect(chatViewSource).toContain('跟随 CC Switch 全局');
-    expect(chatViewSource).toContain('listCcSwitchModelOptions(snapshot.routeEnvironment)');
+    expect(chatViewSource).toContain('listCcSwitchModelOptions(');
     expect(chatViewSource).toContain('void this.selectCcSwitchModel(');
     expect(chatViewSource).toContain('settings.ccSwitchModelByAgent.claude = alias.trim()');
+    expect(chatViewSource).toContain('当前供应商未映射此角色');
     expect(chatViewSource).not.toContain("text: '只跟随 CC Switch 全局配置，不受当前 Vault 的 Claude 项目配置影响。'");
   });
 

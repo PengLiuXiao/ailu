@@ -374,35 +374,11 @@ export function readCcSwitchCurrentSelection(
   };
 }
 
-/**
- * Re-resolve the snapshot against a model override (family alias or exact
- * model id) so display helpers and the switch notice can follow a selection
- * that is not CC Switch's global default.
- */
-function ccSwitchEffectiveSnapshot(
-  snapshot: CcSwitchSnapshot,
-  modelOverride?: string | null,
-): CcSwitchSnapshot {
-  const override = modelOverride?.trim();
-  if (!override || snapshot.state !== 'ready') return snapshot;
-  const session = resolveClaudeCcSwitchSessionConfig(
-    snapshot.routeEnvironment,
-    snapshot.currentCliModel,
-    snapshot.routeFingerprint,
-    override,
-  );
-  return {
-    ...snapshot,
-    currentCliModel: session.cliModel || null,
-    currentModel: session.routedModel,
-  };
-}
-
 export function ccSwitchSnapshotLabel(
   snapshot: CcSwitchSnapshot,
   modelOverride?: string | null,
 ): string {
-  const effective = ccSwitchEffectiveSnapshot(snapshot, modelOverride);
+  const effective = ccSwitchGlobalSnapshot(snapshot, modelOverride);
   const providerMarker = effective.currentProvider?.trim()
     || effective.currentProviderId?.trim().slice(0, 8)
     || '';
@@ -410,7 +386,9 @@ export function ccSwitchSnapshotLabel(
   if (!currentModel) {
     const configuredModel = effective.currentCliModel?.trim() ?? '';
     const modelLabel = configuredModel
-      ? `${configuredModel}（按 CC Switch 配置）`
+      ? modelOverride?.trim()
+        ? `${configuredModel}（已选择）`
+        : `${configuredModel}（按 CC Switch 配置）`
       : '模型未配置';
     return providerMarker ? `${modelLabel} · ${providerMarker}` : modelLabel;
   }
@@ -428,7 +406,7 @@ export function ccSwitchSnapshotModelName(
   snapshot: CcSwitchSnapshot,
   modelOverride?: string | null,
 ): string {
-  const effective = ccSwitchEffectiveSnapshot(snapshot, modelOverride);
+  const effective = ccSwitchGlobalSnapshot(snapshot, modelOverride);
   return effective.currentModel?.trim()
     || effective.currentCliModel?.trim()
     || '模型未配置';
@@ -462,6 +440,12 @@ export function ccSwitchRouteSummary(snapshot: CcSwitchSnapshot): string {
   return [...new Set(models)].join(' / ');
 }
 
+/**
+ * Re-resolve the snapshot's effective CLI model against the global route.
+ * With a non-empty modelOverride (role alias or exact id), the resolved
+ * snapshot reflects the user's selection instead of CC Switch's global
+ * default; display helpers and the session label use this consistently.
+ */
 export function ccSwitchGlobalSnapshot(
   snapshot: CcSwitchSnapshot,
   modelOverride?: string | null,

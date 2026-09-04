@@ -576,9 +576,11 @@ export class RuntimeManager {
         ccSwitch.routeEnvironment,
         ccSwitch.currentCliModel,
         ccSwitch.routeFingerprint,
-        // The UI may run this session under a role override (family alias);
-        // the fingerprint check then covers exactly that session, while old
-        // override-less requests keep matching the untouched global route.
+        // request.model is the model the UI committed to — the role override
+        // when one is pinned, otherwise the send-time global CLI model. The
+        // two checks above already reject provider or global-route drift, so
+        // re-resolving with it keeps this session check scoped to exactly
+        // what the UI captured.
         request.configSource === 'ccSwitchCurrent' ? request.model : null,
       );
       if (

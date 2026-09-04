@@ -314,7 +314,9 @@ describe('ccSwitchGlobalSnapshot', () => {
       currentModel: 'glm-5.3-flash',
       claudeConfigDir: '/mock-home/.claude',
       routeEnvironment: {
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5.3-flash[1M]',
         ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'glm-5.3-flash',
+        ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-5.3[1M]',
         ANTHROPIC_DEFAULT_OPUS_MODEL_NAME: 'glm-5.3',
       },
       routeFingerprint: 'route:zhipu',
@@ -333,6 +335,29 @@ describe('ccSwitchGlobalSnapshot', () => {
     expect(ccSwitchSnapshotModelName(snapshot, 'opus')).toBe('glm-5.3');
     // Without the override every helper reports the global Sonnet selection.
     expect(ccSwitchSnapshotModelName(snapshot)).toBe('glm-5.3-flash');
+  });
+
+  test('attributes an unmapped override to the user selection instead of CC Switch config', () => {
+    const snapshot: CcSwitchSnapshot = {
+      state: 'ready',
+      currentProvider: 'Zhipu GLM',
+      currentProviderId: 'zhipu-provider-id',
+      currentCliModel: 'glm-5.3-flash[1M]',
+      currentModel: null,
+      claudeConfigDir: '/mock-home/.claude',
+      routeEnvironment: {},
+      routeFingerprint: 'route:zhipu',
+      selectionSource: 'liveConfig',
+      proxyStatusStale: false,
+      error: null,
+      checkedAt: 1,
+      baseUrl: CC_SWITCH_BASE_URL,
+    };
+
+    expect(ccSwitchSnapshotLabel(snapshot, 'opus'))
+      .toBe('opus（已选择） · Zhipu GLM');
+    expect(ccSwitchSnapshotLabel(snapshot))
+      .toBe('glm-5.3-flash[1M]（按 CC Switch 配置） · Zhipu GLM');
   });
 });
 
