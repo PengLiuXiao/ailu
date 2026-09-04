@@ -686,6 +686,146 @@ describe('RuntimeManager provider safeguards', () => {
     expect(events).toContainEqual({ type: 'done' });
   });
 
+  test('spawns with the requested role override when its session fingerprint matches', async () => {
+    const argsMarker = path.join(tempDir, 'ccswitch-role-override-args');
+    const binaryPath = path.join(tempDir, 'fake-claude');
+    const globalClaudeDir = path.join(tempDir, 'ccswitch-role-override-claude');
+    fs.mkdirSync(globalClaudeDir);
+    fs.writeFileSync(binaryPath, [
+      '#!/bin/sh',
+      `printf '%s\n' "$@" > ${JSON.stringify(argsMarker)}`,
+      'cat >/dev/null',
+      'echo \'{"type":"system","subtype":"init","session_id":"role-override-session"}\'',
+      'echo \'{"type":"assistant","message":{"content":[{"type":"text","text":"OK"}]}}\'',
+    ].join('\n'));
+    fs.chmodSync(binaryPath, 0o755);
+    const routeEnvironment = {
+      ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'qwen3.8-max-preview',
+      ANTHROPIC_DEFAULT_OPUS_MODEL_NAME: 'opus-upstream-model',
+    };
+    const routeFingerprint = 'route:provider-current';
+    const client = new CcSwitchClient({
+      transport: async request => request.url.endsWith('/health')
+        ? { status: 200, body: JSON.stringify({ status: 'healthy' }) }
+        : {
+          status: 200,
+          body: JSON.stringify({
+            running: true,
+            address: '127.0.0.1',
+            port: 15721,
+            current_provider: 'qwen3.8-max',
+            current_provider_id: 'provider-current',
+          }),
+        },
+      selectionReader: () => ({
+        currentProviderId: 'provider-current',
+        currentCliModel: 'sonnet',
+        currentModel: 'qwen3.8-max-preview',
+        claudeConfigDir: globalClaudeDir,
+        routeEnvironment,
+        sourceAvailable: true,
+        routeFingerprint,
+      }),
+      selectionStabilityDelayMs: 0,
+    });
+    const providerStore = { find: () => null } as unknown as ProviderStore;
+    const manager = new RuntimeManager(
+      providerStore,
+      () => makeCcSwitchSettings(binaryPath),
+      client,
+    );
+    const events: RuntimeTurnEvent[] = [];
+    const overrideSessionFingerprint = resolveClaudeCcSwitchSessionConfig(
+      routeEnvironment,
+      'sonnet',
+      routeFingerprint,
+      'opus',
+    ).routeFingerprint;
+
+    await manager.runTurn({
+      ...request,
+      configSource: 'ccSwitchCurrent',
+      providerProfileId: undefined,
+      model: 'opus',
+      ccSwitchProviderId: 'provider-current',
+      ccSwitchRouteFingerprint: routeFingerprint,
+      ccSwitchSessionFingerprint: overrideSessionFingerprint,
+    }, event => events.push(event));
+
+    const args = fs.readFileSync(argsMarker, 'utf8');
+    expect(args).toContain('--model');
+    expect(args).toContain('opus');
+    expect(events).toContainEqual({ type: 'session', sessionId: 'role-override-session' });
+    expect(events).toContainEqual({ type: 'text', content: 'OK' });
+    expect(events).toContainEqual({ type: 'done' });
+  });
+
+  test('fails closed before spawn when the role override no longer matches the session fingerprint', async () => {
+    const marker = path.join(tempDir, 'ccswitch-override-should-not-start');
+    const binaryPath = path.join(tempDir, 'fake-claude');
+    fs.writeFileSync(binaryPath, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\n`);
+    fs.chmodSync(binaryPath, 0o755);
+    const routeEnvironment = {
+      ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'qwen3.8-max-preview',
+      ANTHROPIC_DEFAULT_OPUS_MODEL_NAME: 'opus-upstream-model',
+    };
+    const routeFingerprint = 'route:provider-current';
+    const client = new CcSwitchClient({
+      transport: async request => request.url.endsWith('/health')
+        ? { status: 200, body: JSON.stringify({ status: 'healthy' }) }
+        : {
+          status: 200,
+          body: JSON.stringify({
+            running: true,
+            address: '127.0.0.1',
+            port: 15721,
+            current_provider: 'qwen3.8-max',
+            current_provider_id: 'provider-current',
+          }),
+        },
+      selectionReader: () => ({
+        currentProviderId: 'provider-current',
+        currentCliModel: 'sonnet',
+        currentModel: 'qwen3.8-max-preview',
+        claudeConfigDir: '/mock-home/.claude',
+        routeEnvironment,
+        sourceAvailable: true,
+        routeFingerprint,
+      }),
+      selectionStabilityDelayMs: 0,
+    });
+    const providerStore = { find: () => null } as unknown as ProviderStore;
+    const manager = new RuntimeManager(
+      providerStore,
+      () => makeCcSwitchSettings(binaryPath),
+      client,
+    );
+    const events: RuntimeTurnEvent[] = [];
+    const opusFingerprint = resolveClaudeCcSwitchSessionConfig(
+      routeEnvironment,
+      'sonnet',
+      routeFingerprint,
+      'opus',
+    ).routeFingerprint;
+
+    // The request claims an opus session but now asks for haiku: the checked
+    // fingerprint differs, so the run must fail closed without spawning.
+    await manager.runTurn({
+      ...request,
+      configSource: 'ccSwitchCurrent',
+      providerProfileId: undefined,
+      model: 'haiku',
+      ccSwitchProviderId: 'provider-current',
+      ccSwitchRouteFingerprint: routeFingerprint,
+      ccSwitchSessionFingerprint: opusFingerprint,
+    }, event => events.push(event));
+
+    expect(fs.existsSync(marker)).toBe(false);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.type).toBe('error');
+    if (events[0]?.type === 'error') expect(events[0].message).toContain('已改变');
+  });
+
   test('notifies open views after a shared CC Switch refresh and supports unsubscribe', async () => {
     const providerStore = { find: () => null } as unknown as ProviderStore;
     const manager = new RuntimeManager(

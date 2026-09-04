@@ -3353,11 +3353,15 @@ export class AiluChatView extends ItemView {
         vaultBasePath,
       )
       : null;
+    const ccSwitchModelOverride = configSource === 'ccSwitchCurrent'
+      ? settings.ccSwitchModelByAgent?.claude?.trim() || null
+      : null;
     const ccSwitchSessionConfig = agentId === 'claude' && configSource === 'ccSwitchCurrent'
       ? resolveClaudeCcSwitchSessionConfig(
         ccSwitchSnapshot?.routeEnvironment,
         ccSwitchSnapshot?.currentCliModel,
         ccSwitchSnapshot?.routeFingerprint,
+        ccSwitchModelOverride,
       )
       : null;
     const claudeSessionConfigKey = agentId === 'claude'

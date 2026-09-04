@@ -576,6 +576,10 @@ export class RuntimeManager {
         ccSwitch.routeEnvironment,
         ccSwitch.currentCliModel,
         ccSwitch.routeFingerprint,
+        // The UI may run this session under a role override (family alias);
+        // the fingerprint check then covers exactly that session, while old
+        // override-less requests keep matching the untouched global route.
+        request.configSource === 'ccSwitchCurrent' ? request.model : null,
       );
       if (
         request.ccSwitchSessionFingerprint?.trim()
@@ -607,7 +611,7 @@ export class RuntimeManager {
       ccSwitchRouteEnvironment = { ...ccSwitch.routeEnvironment };
       ccSwitchClaudeConfigDir = ccSwitch.claudeConfigDir;
       const checkedAt = ccSwitch.checkedAt ?? Date.now();
-      const globalCcSwitch = ccSwitchGlobalSnapshot(ccSwitch);
+      const globalCcSwitch = ccSwitchGlobalSnapshot(ccSwitch, request.model);
       profile = {
         id: `ccswitch:${ccSwitch.currentProviderId}`,
         agentId: 'claude',
