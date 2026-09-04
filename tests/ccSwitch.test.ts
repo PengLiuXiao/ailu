@@ -8,6 +8,7 @@ import {
   ccSwitchGlobalSnapshot,
   ccSwitchRouteSummary,
   ccSwitchSnapshotLabel,
+  ccSwitchSnapshotModelName,
   readCcSwitchCurrentSelection,
   type CcSwitchClientOptions,
   type CcSwitchCurrentSelection,
@@ -103,7 +104,7 @@ describe('ccSwitchSnapshotLabel', () => {
 
     expect(ccSwitchRouteSummary(snapshot)).toBe('deepseek-v4-flash / deepseek-v4-pro');
     expect(ccSwitchSnapshotLabel(snapshot))
-      .toBe('3cd6dac4 · deepseek-v4-flash（按 CC Switch 配置）');
+      .toBe('deepseek-v4-flash（按 CC Switch 配置） · 3cd6dac4');
   });
 
   test('reports a genuinely missing model as not configured', () => {
@@ -123,7 +124,7 @@ describe('ccSwitchSnapshotLabel', () => {
       baseUrl: CC_SWITCH_BASE_URL,
     };
 
-    expect(ccSwitchSnapshotLabel(snapshot)).toBe('DeepSeek · 模型未配置');
+    expect(ccSwitchSnapshotLabel(snapshot)).toBe('模型未配置 · DeepSeek');
   });
 
   test('keeps a confirmed routed model free of the configured-model qualifier', () => {
@@ -146,6 +147,70 @@ describe('ccSwitchSnapshotLabel', () => {
     };
 
     expect(ccSwitchSnapshotLabel(snapshot)).toBe('deepseek-v4-flash · DeepSeek');
+  });
+});
+
+describe('ccSwitchSnapshotModelName', () => {
+  test('prefers the confirmed routed model for the composer chip', () => {
+    const snapshot: CcSwitchSnapshot = {
+      state: 'ready',
+      currentProvider: 'DeepSeek',
+      currentProviderId: 'deepseek-provider-id',
+      currentCliModel: 'sonnet',
+      currentModel: 'deepseek-v4-flash',
+      claudeConfigDir: '/mock-home/.claude',
+      routeEnvironment: {
+        ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'deepseek-v4-flash',
+      },
+      routeFingerprint: 'route:deepseek',
+      selectionSource: 'liveConfig',
+      proxyStatusStale: false,
+      error: null,
+      checkedAt: 1,
+      baseUrl: CC_SWITCH_BASE_URL,
+    };
+
+    expect(ccSwitchSnapshotModelName(snapshot)).toBe('deepseek-v4-flash');
+  });
+
+  test('falls back to the configured CLI model without markers or qualifiers', () => {
+    const snapshot: CcSwitchSnapshot = {
+      state: 'ready',
+      currentProvider: null,
+      currentProviderId: '3cd6dac4-2b1d-4ed7-b2c6-74837d002cc1',
+      currentCliModel: 'deepseek-v4-flash',
+      currentModel: null,
+      claudeConfigDir: '/mock-home/.claude',
+      routeEnvironment: {},
+      routeFingerprint: 'route:deepseek',
+      selectionSource: 'liveConfig',
+      proxyStatusStale: true,
+      error: null,
+      checkedAt: 1,
+      baseUrl: CC_SWITCH_BASE_URL,
+    };
+
+    expect(ccSwitchSnapshotModelName(snapshot)).toBe('deepseek-v4-flash');
+  });
+
+  test('reports a missing model instead of an empty chip', () => {
+    const snapshot: CcSwitchSnapshot = {
+      state: 'error',
+      currentProvider: null,
+      currentProviderId: null,
+      currentCliModel: null,
+      currentModel: null,
+      claudeConfigDir: null,
+      routeEnvironment: {},
+      routeFingerprint: null,
+      selectionSource: null,
+      proxyStatusStale: false,
+      error: 'CC Switch is offline or unavailable.',
+      checkedAt: 1,
+      baseUrl: CC_SWITCH_BASE_URL,
+    };
+
+    expect(ccSwitchSnapshotModelName(snapshot)).toBe('模型未配置');
   });
 });
 

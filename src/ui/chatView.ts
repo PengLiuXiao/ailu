@@ -52,6 +52,7 @@ import { RuntimeManager } from '../runtime/runtimeManager';
 import {
   ccSwitchGlobalSnapshot,
   ccSwitchSnapshotLabel,
+  ccSwitchSnapshotModelName,
   type CcSwitchSnapshot,
 } from '../runtime/ccSwitch';
 import {
@@ -211,6 +212,7 @@ interface RenderedMessageRecord extends ChatMessageRenderFingerprint {
 }
 
 const MAX_CHAT_CONTEXT_FILE_BYTES = 10 * 1024 * 1024;
+const CC_SWITCH_POLL_INTERVAL_MS = 5_000;
 
 export class AiluChatView extends ItemView {
   private conversation: StoredConversation | null = null;
@@ -452,6 +454,14 @@ export class AiluChatView extends ItemView {
       if (!this.containerEl.isShown()) return;
       this.updateEditorContextFromWorkspace();
     }, 600));
+    // CC Switch 换供应商或模型后，模型芯片要在数秒内跟上，而不是等下一次
+    // 发送或手动刷新；状态未变化时 runtimeManager 不会触发界面重绘。
+    this.registerInterval(window.setInterval(() => {
+      if (!this.containerEl.isShown()) return;
+      if (this.agentId !== 'claude') return;
+      if (this.deps.getSettings().configSources.claude !== 'ccSwitchCurrent') return;
+      void this.deps.runtimeManager.refreshCcSwitchStatus();
+    }, CC_SWITCH_POLL_INTERVAL_MS));
   }
 
   private updateEditorContextFromWorkspace(): void {
@@ -3531,7 +3541,7 @@ export class AiluChatView extends ItemView {
     const settings = this.deps.getSettings();
     if (settings.configSources[this.agentId] === 'ccSwitchCurrent') {
       const snapshot = this.deps.runtimeManager.getCcSwitchSnapshot();
-      if (snapshot.state === 'ready') return this.ccSwitchLabel(snapshot);
+      if (snapshot.state === 'ready') return ccSwitchSnapshotModelName(snapshot);
       return 'CC Switch 未连接';
     }
     if (settings.configSources[this.agentId] === 'localCli') {

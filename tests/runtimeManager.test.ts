@@ -668,6 +668,63 @@ describe('RuntimeManager provider safeguards', () => {
     }));
   });
 
+  test('skips repeat notifications until the CC Switch selection actually changes', async () => {
+    const selection = {
+      providerId: 'provider-current',
+      routeFingerprint: 'route:provider-current',
+      currentCliModel: 'sonnet',
+    };
+    const client = new CcSwitchClient({
+      transport: async request => request.url.endsWith('/health')
+        ? { status: 200, body: JSON.stringify({ status: 'healthy' }) }
+        : {
+          status: 200,
+          body: JSON.stringify({
+            running: true,
+            address: '127.0.0.1',
+            port: 15721,
+            current_provider: 'qwen3.8-max',
+            current_provider_id: selection.providerId,
+          }),
+        },
+      selectionReader: () => ({
+        currentProviderId: selection.providerId,
+        currentCliModel: selection.currentCliModel,
+        currentModel: 'qwen3.8-max-preview',
+        claudeConfigDir: '/mock-home/.claude',
+        routeEnvironment: {
+          ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'qwen3.8-max-preview',
+        },
+        sourceAvailable: true,
+        routeFingerprint: selection.routeFingerprint,
+      }),
+      selectionStabilityDelayMs: 0,
+    });
+    const providerStore = { find: () => null } as unknown as ProviderStore;
+    const manager = new RuntimeManager(
+      providerStore,
+      () => makeCcSwitchSettings('/usr/bin/false'),
+      client,
+    );
+    const listener = vi.fn();
+    const unsubscribe = manager.onCcSwitchStatusChange(listener);
+
+    await manager.refreshCcSwitchStatus();
+    await manager.refreshCcSwitchStatus();
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    selection.currentCliModel = 'opus';
+    selection.routeFingerprint = 'route:provider-next';
+    await manager.refreshCcSwitchStatus();
+
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(listener).toHaveBeenLastCalledWith(expect.objectContaining({
+      currentCliModel: 'opus',
+      routeFingerprint: 'route:provider-next',
+    }));
+    unsubscribe();
+  });
+
   test('fails closed before spawn when CC Switch changed after the UI preflight', async () => {
     const marker = path.join(tempDir, 'ccswitch-should-not-start');
     const binaryPath = path.join(tempDir, 'fake-claude');

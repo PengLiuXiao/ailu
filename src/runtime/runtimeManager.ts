@@ -39,12 +39,28 @@ interface ManagerRunRegistration {
   resolve: () => void;
 }
 
+/** Every displayed field except checkedAt, which changes on every probe. */
+function ccSwitchSelectionChanged(previous: CcSwitchSnapshot, next: CcSwitchSnapshot): boolean {
+  return previous.state !== next.state
+    || previous.error !== next.error
+    || previous.currentProvider !== next.currentProvider
+    || previous.currentProviderId !== next.currentProviderId
+    || previous.currentCliModel !== next.currentCliModel
+    || previous.currentModel !== next.currentModel
+    || previous.claudeConfigDir !== next.claudeConfigDir
+    || previous.routeFingerprint !== next.routeFingerprint
+    || previous.selectionSource !== next.selectionSource
+    || previous.proxyStatusStale !== next.proxyStatusStale
+    || JSON.stringify(previous.routeEnvironment) !== JSON.stringify(next.routeEnvironment);
+}
+
 export class RuntimeManager {
   // Multiple turns can be in flight at once (chat + inline edit), so track every
   // live adapter instead of only the most recent one.
   private readonly activeAdapters = new Set<AgentAdapter>();
   private readonly cooldownByProfile = new Map<string, number>();
   private readonly ccSwitchStatusListeners = new Set<(snapshot: CcSwitchSnapshot) => void>();
+  private ccSwitchListenerSnapshot: CcSwitchSnapshot | null = null;
   private readonly inflightRuns = new Set<ManagerRunRegistration>();
   private readonly maintenanceOperations = new Set<Promise<unknown>>();
   /** Prevents opaque execution stamps from becoming stable hashes of secrets. */
@@ -82,6 +98,12 @@ export class RuntimeManager {
       this.maintenanceOperations.delete(operation);
     }
     if (this.lifecycle !== 'running' || epoch !== this.lifecycleEpoch) return snapshot;
+    // Polling refreshes routinely, so views only need to re-render when the
+    // reported selection actually moved; checkedAt alone must not trigger it.
+    if (this.ccSwitchListenerSnapshot && !ccSwitchSelectionChanged(this.ccSwitchListenerSnapshot, snapshot)) {
+      return snapshot;
+    }
+    this.ccSwitchListenerSnapshot = snapshot;
     for (const listener of this.ccSwitchStatusListeners) {
       try {
         listener(snapshot);

@@ -384,11 +384,23 @@ export function ccSwitchSnapshotLabel(snapshot: CcSwitchSnapshot): string {
     const modelLabel = configuredModel
       ? `${configuredModel}（按 CC Switch 配置）`
       : '模型未配置';
-    return providerMarker ? `${providerMarker} · ${modelLabel}` : modelLabel;
+    return providerMarker ? `${modelLabel} · ${providerMarker}` : modelLabel;
   }
   return providerMarker && currentModel !== providerMarker && !currentModel.includes(providerMarker)
     ? `${currentModel} · ${providerMarker}`
     : currentModel;
+}
+
+/**
+ * Bare model name for compact composer chips. The full snapshot label leads
+ * with the model too, but carries provider markers and provenance qualifiers
+ * that a narrow button cannot show.
+ */
+export function ccSwitchSnapshotModelName(snapshot: CcSwitchSnapshot): string {
+  const globalSnapshot = ccSwitchGlobalSnapshot(snapshot);
+  return globalSnapshot.currentModel?.trim()
+    || globalSnapshot.currentCliModel?.trim()
+    || '模型未配置';
 }
 
 export function ccSwitchRouteSummary(snapshot: CcSwitchSnapshot): string {
