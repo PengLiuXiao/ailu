@@ -257,6 +257,31 @@ describe('Claude local model detection', () => {
     })).toBeNull();
   });
 
+  test('treats an empty CLI model as the Sonnet-family default', () => {
+    const routes = {
+      ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME: 'glm-5.3-flash',
+      ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'glm-5.3-flash',
+      ANTHROPIC_DEFAULT_OPUS_MODEL_NAME: 'glm-5.3',
+      ANTHROPIC_DEFAULT_FABLE_MODEL_NAME: 'glm-5.3',
+    };
+
+    expect(resolveClaudeRoutedModelLabel('', routes)).toBe('glm-5.3-flash');
+    expect(resolveClaudeRoutedModelLabel('', {
+      ANTHROPIC_DEFAULT_OPUS_MODEL_NAME: 'glm-5.3',
+    })).toBeNull();
+  });
+
+  test('resolves the Fable family through aliases and explicit mappings', () => {
+    const routes = {
+      ANTHROPIC_DEFAULT_FABLE_MODEL: 'claude-fable-5[1M]',
+      ANTHROPIC_DEFAULT_FABLE_MODEL_NAME: 'glm-5.3',
+    };
+
+    expect(resolveClaudeRoutedModelLabel('fable', routes)).toBe('glm-5.3');
+    expect(resolveClaudeRoutedModelLabel('fable[1m]', routes)).toBe('glm-5.3');
+    expect(resolveClaudeRoutedModelLabel('claude-fable-5[1M]', routes)).toBe('glm-5.3');
+  });
+
   test('does not persist URL credentials in the route fingerprint', () => {
     mockFiles.contents.set(settingsPath, JSON.stringify({
       model: 'sonnet',

@@ -114,11 +114,11 @@ export class AgentAdapter extends EventEmitter {
     if (
       this.options.agentId === 'claude'
       && effectiveRequest.configSource === 'ccSwitchCurrent'
-      && (!effectiveRequest.model?.trim() || !this.options.ccSwitchClaudeConfigDir?.trim())
+      && !this.options.ccSwitchClaudeConfigDir?.trim()
     ) {
       this.emitEvent({
         type: 'error',
-        message: 'CC Switch 全局 Claude 模型配置不完整，本次未启动。',
+        message: 'CC Switch 全局 Claude 配置不可用，本次未启动。',
       });
       this.emitEvent({ type: 'done' });
       return Promise.resolve();

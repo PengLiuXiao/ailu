@@ -75,6 +75,7 @@ function ccSwitchClient(
   routedModel = 'qwen3.8-max-preview',
   selectionOptions: {
     currentCliModel?: string | null;
+    currentModel?: string | null;
     claudeConfigDir?: string | null;
   } = {},
 ): CcSwitchClient {
@@ -101,7 +102,9 @@ function ccSwitchClient(
     selectionReader: () => ({
       currentProviderId: providerId,
       currentCliModel,
-      currentModel: currentCliModel ? routedModel : null,
+      currentModel: selectionOptions.currentModel === undefined
+        ? currentCliModel ? routedModel : null
+        : selectionOptions.currentModel,
       claudeConfigDir,
       routeEnvironment: {
         ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: routedModel,
@@ -549,8 +552,7 @@ describe('RuntimeManager provider safeguards', () => {
     expect(events).toContainEqual({ type: 'done' });
   });
 
-  test('fails closed without a global CC Switch CLI model and never spawns or resumes Claude', async () => {
-    const marker = path.join(tempDir, 'ccswitch-missing-model-started');
+  test('fails closed without a global CC Switch CLI model and never spawns or resumes Claude', async () => {    const marker = path.join(tempDir, 'ccswitch-missing-model-started');
     const argsMarker = path.join(tempDir, 'ccswitch-missing-model-args');
     const binaryPath = path.join(tempDir, 'fake-claude');
     const globalClaudeDir = path.join(tempDir, 'ccswitch-global-claude');
@@ -642,6 +644,44 @@ describe('RuntimeManager provider safeguards', () => {
     expect(args).not.toContain('--resume');
     expect(args).not.toContain('session-from-an-unverified-route');
     expect(events).toContainEqual({ type: 'session', sessionId: 'fresh-ccswitch-session' });
+    expect(events).toContainEqual({ type: 'text', content: 'OK' });
+    expect(events).toContainEqual({ type: 'done' });
+  });
+
+  test('spawns with family mappings only when no explicit CC Switch CLI model is set', async () => {
+    const argsMarker = path.join(tempDir, 'ccswitch-default-family-args');
+    const binaryPath = path.join(tempDir, 'fake-claude');
+    const globalClaudeDir = path.join(tempDir, 'ccswitch-default-family-claude');
+    fs.mkdirSync(globalClaudeDir);
+    fs.writeFileSync(binaryPath, [
+      '#!/bin/sh',
+      `printf '%s\n' "$@" > ${JSON.stringify(argsMarker)}`,
+      'cat >/dev/null',
+      'echo \'{"type":"system","subtype":"init","session_id":"mapping-only-session"}\'',
+      'echo \'{"type":"assistant","message":{"content":[{"type":"text","text":"OK"}]}}\'',
+    ].join('\n'));
+    fs.chmodSync(binaryPath, 0o755);
+    const providerStore = { find: () => null } as unknown as ProviderStore;
+    const manager = new RuntimeManager(
+      providerStore,
+      () => makeCcSwitchSettings(binaryPath),
+      ccSwitchClient('provider-current', 'route:provider-current', 'glm-5.3-flash', {
+        currentCliModel: null,
+        currentModel: 'glm-5.3-flash',
+        claudeConfigDir: globalClaudeDir,
+      }),
+    );
+    const events: RuntimeTurnEvent[] = [];
+
+    await manager.runTurn({
+      ...request,
+      configSource: 'ccSwitchCurrent',
+      providerProfileId: undefined,
+    }, event => events.push(event));
+
+    const args = fs.readFileSync(argsMarker, 'utf8');
+    expect(args).not.toContain('--model');
+    expect(events).toContainEqual({ type: 'session', sessionId: 'mapping-only-session' });
     expect(events).toContainEqual({ type: 'text', content: 'OK' });
     expect(events).toContainEqual({ type: 'done' });
   });

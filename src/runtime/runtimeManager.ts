@@ -459,7 +459,7 @@ export class RuntimeManager {
         ccSwitch.state !== 'ready'
         || ccSwitch.selectionSource !== 'liveConfig'
         || !ccSwitch.currentProviderId
-        || !ccSwitch.currentCliModel?.trim()
+        || !(ccSwitch.currentCliModel?.trim() || ccSwitch.currentModel?.trim())
         || !ccSwitch.claudeConfigDir?.trim()
         || !ccSwitch.routeFingerprint
       ) {

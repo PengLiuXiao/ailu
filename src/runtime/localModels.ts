@@ -35,7 +35,9 @@ const CLAUDE_MODEL_ALIASES: LocalModelOption[] = [
   { id: 'sonnet', label: 'Sonnet', note: 'alias' },
   { id: 'opus', label: 'Opus', note: 'alias' },
   { id: 'haiku', label: 'Haiku', note: 'alias' },
+  { id: 'fable', label: 'Fable', note: 'alias' },
   { id: 'sonnet[1m]', label: 'Sonnet 1M', note: 'alias' },
+  { id: 'fable[1m]', label: 'Fable 1M', note: 'alias' },
 ];
 
 const CLAUDE_ROUTE_ENV_KEYS = [
@@ -48,6 +50,8 @@ const CLAUDE_ROUTE_ENV_KEYS = [
   'ANTHROPIC_DEFAULT_SONNET_MODEL_NAME',
   'ANTHROPIC_DEFAULT_OPUS_MODEL',
   'ANTHROPIC_DEFAULT_OPUS_MODEL_NAME',
+  'ANTHROPIC_DEFAULT_FABLE_MODEL',
+  'ANTHROPIC_DEFAULT_FABLE_MODEL_NAME',
   'ANTHROPIC_SMALL_FAST_MODEL',
   'CLAUDE_CODE_SUBAGENT_MODEL',
 ] as const;
@@ -238,35 +242,41 @@ export function resolveClaudeCcSwitchSessionConfig(
   };
 }
 
+type ClaudeModelFamily = 'HAIKU' | 'SONNET' | 'OPUS' | 'FABLE';
+
 function claudeModelFamily(
   cliModel: string,
   routeEnv: ClaudeModelRouteEnvironment,
-): 'HAIKU' | 'SONNET' | 'OPUS' | null {
+): ClaudeModelFamily | null {
   const normalized = cliModel.toLowerCase();
-  const matches = new Set<'HAIKU' | 'SONNET' | 'OPUS'>();
-  const alias = normalized.match(/^(haiku|sonnet|opus)(?:\[1m\])?$/)?.[1];
-  const fullModel = normalized.match(/^claude-(haiku|sonnet|opus)(?:-|\[|$)/)?.[1];
+  const matches = new Set<ClaudeModelFamily>();
+  const alias = normalized.match(/^(haiku|sonnet|opus|fable)(?:\[1m\])?$/)?.[1];
+  const fullModel = normalized.match(/^claude-(haiku|sonnet|opus|fable)(?:-|\[|$)/)?.[1];
   const namedFamily = alias || fullModel;
   if (namedFamily === 'haiku') matches.add('HAIKU');
   if (namedFamily === 'sonnet') matches.add('SONNET');
   if (namedFamily === 'opus') matches.add('OPUS');
+  if (namedFamily === 'fable') matches.add('FABLE');
   if (cliModel === routeEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL) matches.add('HAIKU');
   if (cliModel === routeEnv.ANTHROPIC_DEFAULT_SONNET_MODEL) matches.add('SONNET');
   if (cliModel === routeEnv.ANTHROPIC_DEFAULT_OPUS_MODEL) matches.add('OPUS');
+  if (cliModel === routeEnv.ANTHROPIC_DEFAULT_FABLE_MODEL) matches.add('FABLE');
   return matches.size === 1 ? [...matches][0] ?? null : null;
 }
 
 /**
- * Resolve the upstream label for one concrete Claude CLI model. When the CLI
- * model does not identify a family, a routed label is only safe if every
- * configured family points to the same upstream model.
+ * Resolve the upstream label for one concrete Claude CLI model. An empty CLI
+ * model means Claude Code's built-in default, which runs in the Sonnet family
+ * unless settings or --model override it.
  */
 export function resolveClaudeRoutedModelLabel(
   cliModel: string,
   routeEnv: ClaudeModelRouteEnvironment,
 ): string | null {
   const normalizedCliModel = cliModel.trim();
-  const family = claudeModelFamily(normalizedCliModel, routeEnv);
+  const family = normalizedCliModel
+    ? claudeModelFamily(normalizedCliModel, routeEnv)
+    : 'SONNET';
   if (family) {
     return routeEnv[`ANTHROPIC_DEFAULT_${family}_MODEL_NAME`]?.trim()
       || null;

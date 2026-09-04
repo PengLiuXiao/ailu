@@ -305,6 +305,73 @@ describe('readCcSwitchCurrentSelection', () => {
     expect(serialized).not.toContain('webdavPassword');
   });
 
+  test('resolves the Sonnet-family default when only family mappings are configured', () => {
+    writeCcSettings();
+    // Real-world CC Switch shape: no `model`, no ANTHROPIC_MODEL — the CLI runs
+    // its built-in default (Sonnet family) through the mapped upstream models.
+    fs.writeFileSync(path.join(claudeDir, 'settings.json'), JSON.stringify({
+      env: {
+        ANTHROPIC_BASE_URL: CC_SWITCH_BASE_URL,
+        ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME: 'glm-5.3-flash',
+        ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'glm-5.3-flash',
+        ANTHROPIC_DEFAULT_OPUS_MODEL_NAME: 'glm-5.3',
+        ANTHROPIC_DEFAULT_FABLE_MODEL_NAME: 'glm-5.3',
+      },
+    }));
+
+    const result = readCcSwitchCurrentSelection(ccSettingsPath);
+
+    expect(result).toMatchObject({
+      currentProviderId: 'deepseek-provider-id',
+      currentCliModel: null,
+      currentModel: 'glm-5.3-flash',
+    });
+  });
+
+  test('stays ready without an explicit CLI model and follows mapping-only switches', async () => {
+    writeCcSettings({ currentProviderClaude: 'glm-provider-id' });
+    const writeFamilyMappings = (upstream: string): void => {
+      fs.writeFileSync(path.join(claudeDir, 'settings.json'), JSON.stringify({
+        env: {
+          ANTHROPIC_BASE_URL: CC_SWITCH_BASE_URL,
+          ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: upstream,
+        },
+      }));
+    };
+    writeFamilyMappings('glm-5.3-flash');
+    const client = new TestCcSwitchClient({
+      transport: sequenceTransport(
+        healthy,
+        status({ current_provider: 'GLM', current_provider_id: 'glm-provider-id' }),
+        healthy,
+        status({ current_provider: 'GLM', current_provider_id: 'glm-provider-id' }),
+        healthy,
+        status({ current_provider: 'GLM', current_provider_id: 'glm-provider-id' }),
+        healthy,
+        status({ current_provider: 'GLM', current_provider_id: 'glm-provider-id' }),
+      ),
+      selectionReader: () => readCcSwitchCurrentSelection(ccSettingsPath),
+      selectionStabilityDelayMs: 0,
+    });
+
+    const before = await client.refresh();
+    expect(before).toMatchObject({
+      state: 'ready',
+      currentCliModel: null,
+      currentModel: 'glm-5.3-flash',
+    });
+    expect(ccSwitchSnapshotLabel(before)).toBe('glm-5.3-flash · GLM');
+    expect(ccSwitchSnapshotModelName(before)).toBe('glm-5.3-flash');
+
+    writeFamilyMappings('deepseek-v4-pro');
+    const after = await client.refresh();
+    expect(after).toMatchObject({
+      state: 'ready',
+      currentModel: 'deepseek-v4-pro',
+    });
+    expect(after.routeFingerprint).not.toBe(before.routeFingerprint);
+  });
+
   test('normalizes a custom Claude directory into snapshots and invalidates its route session', async () => {
     const configuredDir = `${claudeDir}${path.sep}..${path.sep}${path.basename(claudeDir)}`;
     const alternateDir = path.join(tempDir, 'alternate-claude');

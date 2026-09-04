@@ -858,7 +858,7 @@ export class AiluSettingTab extends PluginSettingTab {
     const state = snapshot.state;
     const statusText = state === 'ready'
       ? `本机代理在线 · ${currentLabel}${!snapshot.currentModel && routeSummary
-        ? ` · Haiku / Sonnet / Opus 家族路由：${routeSummary}`
+        ? ` · Haiku / Sonnet / Opus / Fable 家族路由：${routeSummary}`
         : ''}`
       : state === 'error'
         ? `本机代理不可用：${userFacingErrorText(snapshot.error, '未返回可识别的错误详情。')}`

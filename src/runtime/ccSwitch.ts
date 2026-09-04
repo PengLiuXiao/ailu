@@ -408,6 +408,7 @@ export function ccSwitchRouteSummary(snapshot: CcSwitchSnapshot): string {
     snapshot.routeEnvironment.ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME,
     snapshot.routeEnvironment.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME,
     snapshot.routeEnvironment.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME,
+    snapshot.routeEnvironment.ANTHROPIC_DEFAULT_FABLE_MODEL_NAME,
   ].map(value => value?.trim() ?? '').filter(Boolean);
   return [...new Set(models)].join(' / ');
 }
@@ -533,7 +534,7 @@ export class CcSwitchClient {
       if (!liveProviderId) {
         throw new CcSwitchProbeError('CC Switch has no current Claude provider selected.');
       }
-      if (!currentCliModel) {
+      if (!currentCliModel && !currentModel) {
         throw new CcSwitchProbeError('CC Switch global Claude model is not configured.');
       }
       if (!claudeConfigDir) {
